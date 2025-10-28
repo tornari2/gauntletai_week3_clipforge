@@ -323,6 +323,47 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  align-items: center;
+}
+
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.6;
+}
+
+.timeline.drag-over {
+  background-color: var(--accent-color);
+  border: 2px dashed var(--accent-color);
+}
+
+.timeline.drag-over .timeline-empty {
+  color: var(--text-primary);
+}
+
+.timeline.drag-over .empty-icon {
+  opacity: 1;
+}
+
+/* Media Library drag over state */
+.timeline.drag-over {
+  background-color: var(--accent-color);
+  border: 2px dashed var(--accent-color);
+  transform: scale(1.02);
+  transition: all 0.2s ease;
+}
+
+.timeline.drag-over .timeline-empty {
+  color: var(--text-primary);
+}
+
+.timeline.drag-over .empty-icon {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.timeline.drag-over .timeline-header {
+  color: var(--text-primary);
 }
 
 .timeline-container {
@@ -514,6 +555,89 @@ body {
 .trim-controls h3 {
   margin-bottom: 16px;
   font-size: 18px;
+}
+
+/* Trim Slider Styles */
+.trim-slider-container {
+  margin-bottom: 24px;
+  padding: 16px;
+  background-color: var(--bg-tertiary);
+  border-radius: var(--border-radius);
+}
+
+.trim-slider-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.trim-slider-label {
+  font-weight: 500;
+  color: var(--accent-green);
+  font-size: 14px;
+}
+
+.trim-slider {
+  position: relative;
+  height: 40px;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.trim-slider-track {
+  position: relative;
+  height: 8px;
+  background-color: var(--bg-secondary);
+  border-radius: 4px;
+  margin: 16px 0;
+  border: 1px solid var(--border-color);
+}
+
+.trim-slider-range {
+  position: absolute;
+  height: 100%;
+  background-color: var(--accent-green);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.trim-slider-handle {
+  position: absolute;
+  top: -8px;
+  width: 16px;
+  height: 24px;
+  background-color: var(--accent-blue);
+  border: 2px solid var(--text-primary);
+  border-radius: 4px;
+  cursor: grab;
+  transform: translateX(-50%);
+  transition: all 0.1s ease;
+}
+
+.trim-slider-handle:hover {
+  background-color: var(--accent-green);
+  transform: translateX(-50%) scale(1.1);
+}
+
+.trim-slider-handle:active {
+  cursor: grabbing;
+  transform: translateX(-50%) scale(1.2);
+}
+
+.trim-slider-handle-start {
+  border-left-color: var(--accent-green);
+}
+
+.trim-slider-handle-end {
+  border-right-color: var(--accent-green);
+}
+
+.trim-slider-time-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
 }
 
 .trim-inputs {

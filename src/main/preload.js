@@ -9,6 +9,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Video metadata
   getVideoDuration: (filePath) => ipcRenderer.invoke('get-video-duration', filePath),
   
+  // Process dropped files
+  processDroppedFile: (fileName, filePath) => ipcRenderer.invoke('process-dropped-file', { fileName, filePath }),
+  
+  
+  // Listen for dropped video events
+  onVideoDropped: (callback) => {
+    ipcRenderer.on('video-dropped', (event, videoData) => callback(videoData))
+  },
+  
+  // Listen for dropped video errors
+  onVideoDropError: (callback) => {
+    ipcRenderer.on('video-drop-error', (event, error) => callback(error))
+  },
+  
   // File dialogs
   saveDialog: () => ipcRenderer.invoke('save-dialog'),
   

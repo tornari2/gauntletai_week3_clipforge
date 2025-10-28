@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 
 const TrimControls = ({ selectedClip, onTrimUpdate }) => {
   const [startTime, setStartTime] = useState('0')
   const [endTime, setEndTime] = useState('0')
   const [errors, setErrors] = useState({})
+  const [isDragging, setIsDragging] = useState(null) // 'start', 'end', or null
+  const sliderRef = useRef(null)
 
   useEffect(() => {
     if (selectedClip) {
@@ -23,7 +25,8 @@ const TrimControls = ({ selectedClip, onTrimUpdate }) => {
         return minutes * 60 + seconds
       }
     }
-    return parseFloat(input) || 0
+    // Round to whole seconds
+    return Math.round(parseFloat(input) || 0)
   }
 
   const formatTime = (seconds) => {
@@ -83,6 +86,61 @@ const TrimControls = ({ selectedClip, onTrimUpdate }) => {
     })
   }
 
+  // Slider functionality
+  const getSliderPosition = (time) => {
+    if (!selectedClip || selectedClip.duration === 0) return 0
+    return (time / selectedClip.duration) * 100
+  }
+
+  const getTimeFromPosition = (percentage) => {
+    if (!selectedClip) return 0
+    const time = (percentage / 100) * selectedClip.duration
+    // Snap to whole seconds
+    return Math.round(time)
+  }
+
+  const handleSliderMouseDown = (e, handleType) => {
+    e.preventDefault()
+    setIsDragging(handleType)
+  }
+
+  const handleSliderMouseMove = (e) => {
+    if (!isDragging || !sliderRef.current || !selectedClip) return
+
+    const rect = sliderRef.current.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100))
+    const newTime = getTimeFromPosition(percentage)
+
+    if (isDragging === 'start') {
+      const end = parseTimeInput(endTime)
+      if (newTime < end) {
+        setStartTime(Math.round(newTime).toString())
+      }
+    } else if (isDragging === 'end') {
+      const start = parseTimeInput(startTime)
+      if (newTime > start) {
+        setEndTime(Math.round(newTime).toString())
+      }
+    }
+  }
+
+  const handleSliderMouseUp = () => {
+    setIsDragging(null)
+  }
+
+  // Add event listeners for mouse move and up
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleSliderMouseMove)
+      document.addEventListener('mouseup', handleSliderMouseUp)
+      return () => {
+        document.removeEventListener('mousemove', handleSliderMouseMove)
+        document.removeEventListener('mouseup', handleSliderMouseUp)
+      }
+    }
+  }, [isDragging, startTime, endTime, selectedClip])
+
   if (!selectedClip) {
     return (
       <div className="trim-controls">
@@ -101,6 +159,64 @@ const TrimControls = ({ selectedClip, onTrimUpdate }) => {
       <h3>Trim Controls</h3>
       <p className="text-muted">Clip: {selectedClip.fileName}</p>
       
+      {/* Visual Trim Slider */}
+      <div className="trim-slider-container">
+        <div className="trim-slider-header">
+          <span className="trim-slider-label">Start: {formatTime(startSeconds)}</span>
+          <span className="trim-slider-label">End: {formatTime(endSeconds)}</span>
+        </div>
+        
+        <div 
+          className="trim-slider"
+          ref={sliderRef}
+          onMouseDown={(e) => {
+            // Handle clicking on the slider track to move handles
+            const rect = e.currentTarget.getBoundingClientRect()
+            const x = e.clientX - rect.left
+            const percentage = (x / rect.width) * 100
+            const clickTime = getTimeFromPosition(percentage)
+            const start = parseTimeInput(startTime)
+            const end = parseTimeInput(endTime)
+            
+            // Move the closest handle, ensuring we snap to whole seconds
+            if (Math.abs(clickTime - start) < Math.abs(clickTime - end)) {
+              if (clickTime < end) {
+                setStartTime(Math.round(clickTime).toString())
+              }
+            } else {
+              if (clickTime > start) {
+                setEndTime(Math.round(clickTime).toString())
+              }
+            }
+          }}
+        >
+          <div className="trim-slider-track">
+            <div 
+              className="trim-slider-range"
+              style={{
+                left: `${getSliderPosition(startSeconds)}%`,
+                width: `${getSliderPosition(endSeconds) - getSliderPosition(startSeconds)}%`
+              }}
+            />
+            <div 
+              className="trim-slider-handle trim-slider-handle-start"
+              style={{ left: `${getSliderPosition(startSeconds)}%` }}
+              onMouseDown={(e) => handleSliderMouseDown(e, 'start')}
+            />
+            <div 
+              className="trim-slider-handle trim-slider-handle-end"
+              style={{ left: `${getSliderPosition(endSeconds)}%` }}
+              onMouseDown={(e) => handleSliderMouseDown(e, 'end')}
+            />
+          </div>
+        </div>
+        
+        <div className="trim-slider-time-labels">
+          <span>0:00</span>
+          <span>{formatTime(selectedClip.duration)}</span>
+        </div>
+      </div>
+
       <div className="trim-inputs">
         <div className="trim-input-group">
           <label htmlFor="start-time">Start Time</label>

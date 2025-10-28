@@ -89,6 +89,46 @@ app.whenReady().then(() => {
 
 let mainWindow
 
+// Helper function to handle dropped files
+async function handleDroppedFile(filePath) {
+  try {
+    console.log('Main: Processing dropped file:', filePath)
+    
+    if (!require('fs').existsSync(filePath)) {
+      throw new Error(`File does not exist: ${filePath}`)
+    }
+    
+    // Get file name from path
+    const fileName = path.basename(filePath)
+    
+    // Get video duration
+    const duration = await new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(filePath, (err, metadata) => {
+        if (err) {
+          console.error('Main: FFprobe error for dropped file:', err)
+          reject(err)
+        } else {
+          console.log('Main: Dropped file duration:', metadata.format.duration)
+          resolve(metadata.format.duration)
+        }
+      })
+    })
+    
+    // Send the video data to the renderer process
+    mainWindow.webContents.send('video-dropped', {
+      filePath,
+      fileName,
+      duration: Math.round(duration)
+    })
+    
+    console.log('Main: Successfully processed dropped file:', fileName)
+  } catch (error) {
+    console.error('Error handling dropped file:', error)
+    // Send error to renderer
+    mainWindow.webContents.send('video-drop-error', error.message)
+  }
+}
+
 function createWindow() {
   // Create the browser window
   mainWindow = new BrowserWindow({
@@ -108,6 +148,78 @@ function createWindow() {
     resizable: true,
     movable: true
   })
+
+  // Enable file drag and drop on the window
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    const parsedUrl = new URL(navigationUrl)
+    if (parsedUrl.origin !== 'http://localhost:5173') {
+      event.preventDefault()
+    }
+  })
+
+  // Handle file drops on the window using Electron's built-in support
+  mainWindow.webContents.on('dom-ready', () => {
+    // Inject visual feedback for drag and drop only on Media Library
+    mainWindow.webContents.executeJavaScript(`
+      // Add visual feedback for drag and drop only on Media Library
+      document.addEventListener('dragover', (e) => {
+        // Only handle drag over if it's over the Media Library area
+        const mediaLibrary = e.target.closest('.timeline')
+        if (mediaLibrary) {
+          e.preventDefault()
+          e.stopPropagation()
+          mediaLibrary.classList.add('drag-over')
+        }
+      })
+
+      document.addEventListener('dragleave', (e) => {
+        const mediaLibrary = e.target.closest('.timeline')
+        if (mediaLibrary) {
+          e.preventDefault()
+          e.stopPropagation()
+          if (!e.relatedTarget || !mediaLibrary.contains(e.relatedTarget)) {
+            mediaLibrary.classList.remove('drag-over')
+          }
+        }
+      })
+
+      document.addEventListener('drop', (e) => {
+        const mediaLibrary = e.target.closest('.timeline')
+        if (mediaLibrary) {
+          e.preventDefault()
+          e.stopPropagation()
+          mediaLibrary.classList.remove('drag-over')
+          
+          // The actual file processing is handled by the will-navigate event
+          // This is just for visual feedback and preventing default browser behavior
+        }
+      })
+    `)
+  })
+
+  // Handle file drops at the window level
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    const parsedUrl = new URL(navigationUrl)
+    
+    // Check if this is a file drop
+    if (navigationUrl.startsWith('file://')) {
+      event.preventDefault()
+      
+      // Extract the file path
+      const filePath = navigationUrl.replace('file://', '')
+      
+      // Check if it's a video file
+      if (filePath.endsWith('.mp4') || filePath.endsWith('.mov')) {
+        console.log('Main: File dropped:', filePath)
+        
+        // Process the dropped file
+        handleDroppedFile(filePath)
+      }
+    } else if (parsedUrl.origin !== 'http://localhost:5173') {
+      event.preventDefault()
+    }
+  })
+
 
   // Load the app
   const isDev = process.env.NODE_ENV === 'development'
@@ -220,6 +332,17 @@ ipcMain.handle('import-video', async (event) => {
 ipcMain.handle('get-video-duration', async (event, filePath) => {
   try {
     console.log('Main: get-video-duration called for:', filePath)
+    console.log('Main: filePath type:', typeof filePath)
+    console.log('Main: filePath is undefined?', filePath === undefined)
+    
+    if (!filePath) {
+      throw new Error('No file path provided')
+    }
+    
+    if (!require('fs').existsSync(filePath)) {
+      throw new Error(`File does not exist: ${filePath}`)
+    }
+    
     return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(filePath, (err, metadata) => {
         if (err) {
@@ -236,6 +359,10 @@ ipcMain.handle('get-video-duration', async (event, filePath) => {
     throw error
   }
 })
+
+// Handle drag and drop file import
+
+
 
 // Save dialog
 ipcMain.handle('save-dialog', async () => {
