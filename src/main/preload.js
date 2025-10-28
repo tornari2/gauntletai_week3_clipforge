@@ -44,6 +44,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('export-error', (event, error) => callback(error))
   },
   
+  // Recording APIs
+  listVideoSources: () => ipcRenderer.invoke('list-video-sources'),
+  listAudioSources: () => ipcRenderer.invoke('list-audio-sources'),
+  startScreenRecording: (sourceId) => ipcRenderer.invoke('start-screen-recording', sourceId),
+  startWebcamRecording: (deviceId) => ipcRenderer.invoke('start-webcam-recording', deviceId),
+  startPipRecording: (sourceId, deviceId) => ipcRenderer.invoke('start-pip-recording', sourceId, deviceId),
+  stopRecording: (recordingData) => ipcRenderer.invoke('stop-recording', recordingData),
+  saveRecordingFile: (arrayBuffer, fileName) => ipcRenderer.invoke('save-recording-file', arrayBuffer, fileName),
+  minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
+  restoreWindow: () => ipcRenderer.invoke('restore-window'),
+  
+  // Recording event listeners
+  onScreenRecordingSource: (callback) => {
+    ipcRenderer.on('screen-recording-source', (event, data) => callback(data))
+  },
+  
+  onWebcamRecordingDevice: (callback) => {
+    ipcRenderer.on('webcam-recording-device', (event, data) => callback(data))
+  },
+  
+  onPipRecordingSources: (callback) => {
+    ipcRenderer.on('pip-recording-sources', (event, data) => callback(data))
+  },
+  
   // Remove listeners
   removeAllListeners: (channel) => {
     ipcRenderer.removeAllListeners(channel)

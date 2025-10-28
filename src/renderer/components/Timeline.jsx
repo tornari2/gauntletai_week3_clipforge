@@ -1,7 +1,7 @@
 import React from 'react'
 import FileImport from './FileImport'
 
-const Timeline = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideoImported }) => {
+const Timeline = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideoImported, onClipDragStart }) => {
   const formatDuration = (seconds) => {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
@@ -57,10 +57,19 @@ const Timeline = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideoImpo
             <div
               key={clip.id}
               className={`timeline-clip ${selectedClip?.id === clip.id ? 'selected' : ''}`}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData('application/json', JSON.stringify(clip))
+                e.dataTransfer.effectAllowed = 'copy'
+                if (onClipDragStart) {
+                  onClipDragStart(clip)
+                }
+              }}
             >
               <div className="timeline-clip-content" onClick={() => onClipSelect(clip)}>
                 <div className="timeline-clip-header">
                   <div className="timeline-clip-name" title={clip.fileName}>
+                    {clip.isRecording && <span className="recording-badge">🎥</span>}
                     {clip.fileName.length > 35 
                       ? clip.fileName.substring(0, 35) + '...' 
                       : clip.fileName

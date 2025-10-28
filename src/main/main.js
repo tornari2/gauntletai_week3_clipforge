@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, protocol } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, protocol, desktopCapturer } = require('electron')
 const path = require('path')
 const ffmpeg = require('fluent-ffmpeg')
 const ffmpegPath = require('ffmpeg-static')
@@ -419,12 +419,18 @@ ipcMain.handle('get-video-metadata', async (event, filePath) => {
           const fileStats = require('fs').statSync(filePath)
           
           const metadata_result = {
-            duration: metadata.format.duration,
+            duration: metadata.format.duration || 0,
             width: videoStream ? videoStream.width : 0,
             height: videoStream ? videoStream.height : 0,
             fileSize: fileStats.size,
             codec: videoStream ? videoStream.codec_name : 'unknown',
             bitrate: metadata.format.bit_rate ? parseInt(metadata.format.bit_rate) : 0
+          }
+          
+          // Handle WebM files that might have duration issues
+          if (filePath.toLowerCase().endsWith('.webm') && (!metadata_result.duration || metadata_result.duration === 'N/A')) {
+            console.log('Main: WebM file with duration issues, using fallback duration')
+            metadata_result.duration = 0 // Will be handled in the frontend
           }
           
           console.log('Main: Video metadata:', metadata_result)
@@ -453,21 +459,62 @@ ipcMain.handle('generate-thumbnail', async (event, filePath, outputPath) => {
     }
     
     return new Promise((resolve, reject) => {
-      ffmpeg(filePath)
-        .screenshots({
-          timestamps: ['10%'], // Take thumbnail at 10% of video duration
-          filename: path.basename(outputPath),
-          folder: path.dirname(outputPath),
-          size: '320x180' // 16:9 aspect ratio, reasonable size
-        })
-        .on('end', () => {
-          console.log('Main: Thumbnail generated successfully')
-          resolve(outputPath)
-        })
-        .on('error', (err) => {
-          console.error('Main: Thumbnail generation error:', err)
-          reject(err)
-        })
+      // For WebM files, use a specific approach to handle duration issues
+      const isWebM = filePath.toLowerCase().endsWith('.webm')
+      
+      if (isWebM) {
+        // For WebM files, try to get thumbnail at 1 second first
+        ffmpeg(filePath)
+          .screenshots({
+            timestamps: ['1'], // Try 1 second first
+            filename: path.basename(outputPath),
+            folder: path.dirname(outputPath),
+            size: '320x180'
+          })
+          .on('end', () => {
+            console.log('Main: WebM thumbnail generated successfully')
+            resolve(outputPath)
+          })
+          .on('error', (err) => {
+            console.log('Main: WebM thumbnail at 1s failed, trying 10%:', err.message)
+            // If 1 second fails, try 10% with fixed timemarks
+            ffmpeg(filePath)
+              .screenshots({
+                timestamps: ['10%'],
+                filename: path.basename(outputPath),
+                folder: path.dirname(outputPath),
+                size: '320x180'
+              })
+              .on('end', () => {
+                console.log('Main: WebM thumbnail generated at 10%')
+                resolve(outputPath)
+              })
+              .on('error', (err2) => {
+                console.error('Main: WebM thumbnail generation failed:', err2)
+                // Create a placeholder thumbnail
+                createPlaceholderThumbnail(outputPath)
+                  .then(() => resolve(outputPath))
+                  .catch(reject)
+              })
+          })
+      } else {
+        // For other formats, use the original approach
+        ffmpeg(filePath)
+          .screenshots({
+            timestamps: ['10%'], // Take thumbnail at 10% of video duration
+            filename: path.basename(outputPath),
+            folder: path.dirname(outputPath),
+            size: '320x180' // 16:9 aspect ratio, reasonable size
+          })
+          .on('end', () => {
+            console.log('Main: Thumbnail generated successfully')
+            resolve(outputPath)
+          })
+          .on('error', (err) => {
+            console.error('Main: Thumbnail generation error:', err)
+            reject(err)
+          })
+      }
     })
   } catch (error) {
     console.error('Error generating thumbnail:', error)
@@ -538,5 +585,246 @@ ipcMain.handle('export-video', async (event, options) => {
   } catch (error) {
     console.error('Error exporting video:', error)
     throw error
+  }
+})
+
+// Recording IPC Handlers
+
+// List available video sources (screens/windows)
+ipcMain.handle('list-video-sources', async () => {
+  try {
+    console.log('Main: Listing video sources...')
+    const sources = await desktopCapturer.getSources({
+      types: ['screen', 'window']
+    })
+    
+    console.log('Main: Found sources:', sources.length)
+    
+    // Handle case where no sources are available (permission denied)
+    if (sources.length === 0) {
+      throw new Error('No screen recording sources available. Please grant screen recording permission in System Preferences > Security & Privacy > Screen Recording.')
+    }
+    
+    // Filter out the app's own window to prevent self-recording issues
+    const filteredSources = sources.filter(source => {
+      // Exclude windows that contain "ClipForge" or "Electron" in the name
+      const name = source.name.toLowerCase()
+      return !name.includes('clipforge') && 
+             !name.includes('electron') && 
+             !name.includes('cursor') &&
+             !name.includes('vite')
+    })
+    
+    console.log('Main: Filtered sources:', filteredSources.length)
+    
+    return filteredSources.map(source => ({
+      id: source.id,
+      name: source.name,
+      thumbnail: source.thumbnail.toDataURL(),
+      type: source.id.startsWith('screen:') ? 'screen' : 'window'
+    }))
+  } catch (error) {
+    // Use a safer logging method to avoid EPIPE errors
+    try {
+      console.error('Error listing video sources:', error)
+    } catch (logError) {
+      // If console.error fails (EPIPE), just continue
+    }
+    
+    // Check if it's a permission error
+    if (error.message.includes('Permission denied') || error.message.includes('NotAllowedError')) {
+      throw new Error('Screen recording permission denied. Please grant permission in System Preferences > Security & Privacy > Screen Recording.')
+    }
+    
+    throw error
+  }
+})
+
+// List available audio sources (microphones)
+ipcMain.handle('list-audio-sources', async () => {
+  try {
+    console.log('Main: Listing audio sources...')
+    // Note: In Electron, we can't directly list audio sources like we do for video
+    // The renderer process will use navigator.mediaDevices.enumerateDevices() instead
+    // This handler is here for consistency but will return empty array
+    return []
+  } catch (error) {
+    console.error('Error listing audio sources:', error)
+    throw error
+  }
+})
+
+// Start screen recording
+ipcMain.handle('start-screen-recording', async (event, sourceId) => {
+  try {
+    console.log('Main: Starting screen recording for source:', sourceId)
+    
+    // Get the source details
+    const sources = await desktopCapturer.getSources({
+      types: ['screen', 'window']
+    })
+    
+    const source = sources.find(s => s.id === sourceId)
+    if (!source) {
+      throw new Error('Source not found')
+    }
+    
+    // Send source info to renderer for getUserMedia
+    mainWindow.webContents.send('screen-recording-source', {
+      sourceId: source.id,
+      sourceName: source.name
+    })
+    
+    return { success: true, sourceId: source.id }
+  } catch (error) {
+    console.error('Error starting screen recording:', error)
+    throw error
+  }
+})
+
+// Start webcam recording
+ipcMain.handle('start-webcam-recording', async (event, deviceId) => {
+  try {
+    console.log('Main: Starting webcam recording for device:', deviceId)
+    
+    // Send device info to renderer for getUserMedia
+    mainWindow.webContents.send('webcam-recording-device', {
+      deviceId: deviceId
+    })
+    
+    return { success: true, deviceId: deviceId }
+  } catch (error) {
+    console.error('Error starting webcam recording:', error)
+    throw error
+  }
+})
+
+// Start PiP recording (screen + webcam)
+ipcMain.handle('start-pip-recording', async (event, sourceId, deviceId) => {
+  try {
+    console.log('Main: Starting PiP recording - screen:', sourceId, 'webcam:', deviceId)
+    
+    // Get the screen source details
+    const sources = await desktopCapturer.getSources({
+      types: ['screen', 'window']
+    })
+    
+    const source = sources.find(s => s.id === sourceId)
+    if (!source) {
+      throw new Error('Screen source not found')
+    }
+    
+    // Send both source info to renderer
+    mainWindow.webContents.send('pip-recording-sources', {
+      screenSourceId: source.id,
+      screenSourceName: source.name,
+      webcamDeviceId: deviceId
+    })
+    
+    return { success: true, screenSourceId: source.id, webcamDeviceId: deviceId }
+  } catch (error) {
+    console.error('Error starting PiP recording:', error)
+    throw error
+  }
+})
+
+// Stop recording and save file
+ipcMain.handle('stop-recording', async (event, recordingData) => {
+  try {
+    console.log('Main: Stopping recording, data:', recordingData)
+    
+    // The actual recording stop and file save is handled in the renderer
+    // This handler just acknowledges the stop request
+    return { success: true }
+  } catch (error) {
+    console.error('Error stopping recording:', error)
+    throw error
+  }
+})
+
+// Window management for recording
+ipcMain.handle('minimize-window', async () => {
+  try {
+    if (mainWindow) {
+      mainWindow.minimize()
+      console.log('Main: Window minimized for recording')
+    }
+    return { success: true }
+  } catch (error) {
+    console.error('Error minimizing window:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('restore-window', async () => {
+  try {
+    if (mainWindow) {
+      mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+      console.log('Main: Window restored after recording')
+    }
+    return { success: true }
+  } catch (error) {
+    console.error('Error restoring window:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Helper function to create a placeholder thumbnail
+function createPlaceholderThumbnail(outputPath) {
+  return new Promise((resolve, reject) => {
+    // Create a simple colored rectangle as placeholder
+    ffmpeg()
+      .input('color=c=black:s=320x180:d=1')
+      .inputFormat('lavfi')
+      .output(outputPath)
+      .on('end', () => {
+        console.log('Main: Placeholder thumbnail created')
+        resolve(outputPath)
+      })
+      .on('error', (err) => {
+        console.error('Main: Error creating placeholder thumbnail:', err)
+        reject(err)
+      })
+      .run()
+  })
+}
+
+// Save recording file
+ipcMain.handle('save-recording-file', async (event, arrayBuffer, fileName) => {
+  try {
+    console.log('Main: Saving recording file:', fileName)
+    
+    const os = require('os')
+    const path = require('path')
+    const fs = require('fs')
+    
+    // Create file path in Downloads folder
+    const downloadsPath = path.join(os.homedir(), 'Downloads')
+    const filePath = path.join(downloadsPath, fileName)
+    
+    // Ensure Downloads directory exists
+    if (!fs.existsSync(downloadsPath)) {
+      fs.mkdirSync(downloadsPath, { recursive: true })
+    }
+    
+    // Convert ArrayBuffer to Buffer and write file
+    const buffer = Buffer.from(arrayBuffer)
+    fs.writeFileSync(filePath, buffer)
+    
+    console.log('Main: Recording saved to:', filePath)
+    
+    return {
+      success: true,
+      filePath: filePath,
+      fileName: fileName
+    }
+  } catch (error) {
+    console.error('Error saving recording file:', error)
+    return {
+      success: false,
+      error: error.message
+    }
   }
 })
