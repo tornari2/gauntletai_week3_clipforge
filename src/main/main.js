@@ -101,24 +101,60 @@ async function handleDroppedFile(filePath) {
     // Get file name from path
     const fileName = path.basename(filePath)
     
-    // Get video duration
-    const duration = await new Promise((resolve, reject) => {
+    // Get comprehensive metadata
+    const metadata = await new Promise((resolve, reject) => {
       ffmpeg.ffprobe(filePath, (err, metadata) => {
         if (err) {
           console.error('Main: FFprobe error for dropped file:', err)
           reject(err)
         } else {
-          console.log('Main: Dropped file duration:', metadata.format.duration)
-          resolve(metadata.format.duration)
+          const videoStream = metadata.streams.find(stream => stream.codec_type === 'video')
+          const fileStats = require('fs').statSync(filePath)
+          
+          const metadata_result = {
+            duration: metadata.format.duration,
+            width: videoStream ? videoStream.width : 0,
+            height: videoStream ? videoStream.height : 0,
+            fileSize: fileStats.size,
+            codec: videoStream ? videoStream.codec_name : 'unknown',
+            bitrate: metadata.format.bit_rate ? parseInt(metadata.format.bit_rate) : 0
+          }
+          
+          console.log('Main: Dropped file metadata:', metadata_result)
+          resolve(metadata_result)
         }
       })
+    })
+    
+    // Generate thumbnail
+    const thumbnailPath = filePath.replace(/\.[^/.]+$/, '_thumb.jpg')
+    console.log('Main: Generating thumbnail for dropped file at:', thumbnailPath)
+    const generatedThumbnail = await new Promise((resolve, reject) => {
+      ffmpeg(filePath)
+        .screenshots({
+          timestamps: ['10%'],
+          filename: path.basename(thumbnailPath),
+          folder: path.dirname(thumbnailPath),
+          size: '320x180'
+        })
+        .on('end', () => resolve(thumbnailPath))
+        .on('error', (err) => {
+          console.error('Main: Thumbnail generation error for dropped file:', err)
+          reject(err)
+        })
     })
     
     // Send the video data to the renderer process
     mainWindow.webContents.send('video-dropped', {
       filePath,
       fileName,
-      duration: Math.round(duration)
+      duration: Math.round(metadata.duration),
+      width: metadata.width,
+      height: metadata.height,
+      fileSize: metadata.fileSize,
+      codec: metadata.codec,
+      bitrate: metadata.bitrate,
+      thumbnailPath: generatedThumbnail
     })
     
     console.log('Main: Successfully processed dropped file:', fileName)
@@ -356,6 +392,85 @@ ipcMain.handle('get-video-duration', async (event, filePath) => {
     })
   } catch (error) {
     console.error('Error getting video duration:', error)
+    throw error
+  }
+})
+
+// Get video metadata (duration, resolution, file size)
+ipcMain.handle('get-video-metadata', async (event, filePath) => {
+  try {
+    console.log('Main: get-video-metadata called for:', filePath)
+    
+    if (!filePath) {
+      throw new Error('No file path provided')
+    }
+    
+    if (!require('fs').existsSync(filePath)) {
+      throw new Error(`File does not exist: ${filePath}`)
+    }
+    
+    return new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(filePath, (err, metadata) => {
+        if (err) {
+          console.error('Main: FFprobe error:', err)
+          reject(err)
+        } else {
+          const videoStream = metadata.streams.find(stream => stream.codec_type === 'video')
+          const fileStats = require('fs').statSync(filePath)
+          
+          const metadata_result = {
+            duration: metadata.format.duration,
+            width: videoStream ? videoStream.width : 0,
+            height: videoStream ? videoStream.height : 0,
+            fileSize: fileStats.size,
+            codec: videoStream ? videoStream.codec_name : 'unknown',
+            bitrate: metadata.format.bit_rate ? parseInt(metadata.format.bit_rate) : 0
+          }
+          
+          console.log('Main: Video metadata:', metadata_result)
+          resolve(metadata_result)
+        }
+      })
+    })
+  } catch (error) {
+    console.error('Error getting video metadata:', error)
+    throw error
+  }
+})
+
+// Generate video thumbnail
+ipcMain.handle('generate-thumbnail', async (event, filePath, outputPath) => {
+  try {
+    console.log('Main: generate-thumbnail called for:', filePath)
+    console.log('Main: Output path:', outputPath)
+    
+    if (!filePath) {
+      throw new Error('No file path provided')
+    }
+    
+    if (!require('fs').existsSync(filePath)) {
+      throw new Error(`File does not exist: ${filePath}`)
+    }
+    
+    return new Promise((resolve, reject) => {
+      ffmpeg(filePath)
+        .screenshots({
+          timestamps: ['10%'], // Take thumbnail at 10% of video duration
+          filename: path.basename(outputPath),
+          folder: path.dirname(outputPath),
+          size: '320x180' // 16:9 aspect ratio, reasonable size
+        })
+        .on('end', () => {
+          console.log('Main: Thumbnail generated successfully')
+          resolve(outputPath)
+        })
+        .on('error', (err) => {
+          console.error('Main: Thumbnail generation error:', err)
+          reject(err)
+        })
+    })
+  } catch (error) {
+    console.error('Error generating thumbnail:', error)
     throw error
   }
 })

@@ -31,6 +31,12 @@ function App() {
       filePath: videoData.filePath,
       fileName: videoData.fileName,
       duration: videoData.duration,
+      width: videoData.width,
+      height: videoData.height,
+      fileSize: videoData.fileSize,
+      codec: videoData.codec,
+      bitrate: videoData.bitrate,
+      thumbnailPath: videoData.thumbnailPath,
       trimStart: 0,
       trimEnd: videoData.duration
     }

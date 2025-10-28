@@ -8,6 +8,19 @@ const Timeline = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideoImpo
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+  }
+
+  const formatResolution = (width, height) => {
+    if (!width || !height) return 'Unknown'
+    return `${width}×${height}`
+  }
+
   // Listen for dropped video events from main process
   React.useEffect(() => {
     if (window.electronAPI && window.electronAPI.onVideoDropped) {
@@ -46,18 +59,48 @@ const Timeline = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideoImpo
               className={`timeline-clip ${selectedClip?.id === clip.id ? 'selected' : ''}`}
             >
               <div className="timeline-clip-content" onClick={() => onClipSelect(clip)}>
-                <div className="timeline-clip-thumbnail">
-                  <div className="thumbnail-placeholder">🎬</div>
-                </div>
-                <div className="timeline-clip-info">
+                <div className="timeline-clip-header">
                   <div className="timeline-clip-name" title={clip.fileName}>
-                    {clip.fileName.length > 20 
-                      ? clip.fileName.substring(0, 20) + '...' 
+                    {clip.fileName.length > 35 
+                      ? clip.fileName.substring(0, 35) + '...' 
                       : clip.fileName
                     }
                   </div>
-                  <div className="timeline-clip-duration">
-                    {formatDuration(clip.duration)}
+                </div>
+                <div className="timeline-clip-body">
+                  <div className="timeline-clip-thumbnail">
+                    {clip.thumbnailPath ? (
+                      <img 
+                        src={`file://${clip.thumbnailPath}`}
+                        alt={clip.fileName}
+                        className="thumbnail-image"
+                        onError={(e) => {
+                          e.target.style.display = 'none'
+                          e.target.nextSibling.style.display = 'flex'
+                        }}
+                      />
+                    ) : null}
+                    <div className="thumbnail-placeholder" style={{ display: clip.thumbnailPath ? 'none' : 'flex' }}>
+                      🎬
+                    </div>
+                  </div>
+                  <div className="timeline-clip-metadata">
+                    <div className="metadata-item">
+                      <span className="metadata-label">Duration:</span>
+                      <span className="metadata-value">{formatDuration(clip.duration)}</span>
+                    </div>
+                    <div className="metadata-item">
+                      <span className="metadata-label">Resolution:</span>
+                      <span className="metadata-value">{formatResolution(clip.width, clip.height)}</span>
+                    </div>
+                    <div className="metadata-item">
+                      <span className="metadata-label">Size:</span>
+                      <span className="metadata-value">{formatFileSize(clip.fileSize)}</span>
+                    </div>
+                    <div className="metadata-item">
+                      <span className="metadata-label">Codec:</span>
+                      <span className="metadata-value">{clip.codec || 'Unknown'}</span>
+                    </div>
                   </div>
                 </div>
               </div>

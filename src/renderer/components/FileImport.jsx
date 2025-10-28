@@ -23,14 +23,28 @@ const FileImport = ({ onVideoImported }) => {
       
       if (filePath) {
         const fileName = filePath.split('/').pop()
-        console.log('Getting video duration for:', filePath)
-        const duration = await window.electronAPI.getVideoDuration(filePath)
-        console.log('Video duration:', duration)
+        console.log('Getting video metadata for:', filePath)
+        
+        // Get comprehensive metadata
+        const metadata = await window.electronAPI.getVideoMetadata(filePath)
+        console.log('Video metadata:', metadata)
+        
+        // Generate thumbnail
+        const thumbnailPath = filePath.replace(/\.[^/.]+$/, '_thumb.jpg')
+        console.log('Generating thumbnail at:', thumbnailPath)
+        const generatedThumbnail = await window.electronAPI.generateThumbnail(filePath, thumbnailPath)
+        console.log('Thumbnail generated:', generatedThumbnail)
         
         const videoData = {
           filePath,
           fileName,
-          duration: Math.round(duration)
+          duration: Math.round(metadata.duration),
+          width: metadata.width,
+          height: metadata.height,
+          fileSize: metadata.fileSize,
+          codec: metadata.codec,
+          bitrate: metadata.bitrate,
+          thumbnailPath: generatedThumbnail
         }
         console.log('Calling onVideoImported with:', videoData)
         console.log('onVideoImported function:', onVideoImported)
@@ -88,12 +102,24 @@ const FileImport = ({ onVideoImported }) => {
         setIsImporting(true)
         const filePath = videoFile.path
         const fileName = videoFile.name
-        const duration = await window.electronAPI.getVideoDuration(filePath)
+        
+        // Get comprehensive metadata
+        const metadata = await window.electronAPI.getVideoMetadata(filePath)
+        
+        // Generate thumbnail
+        const thumbnailPath = filePath.replace(/\.[^/.]+$/, '_thumb.jpg')
+        const generatedThumbnail = await window.electronAPI.generateThumbnail(filePath, thumbnailPath)
         
         onVideoImported({
           filePath,
           fileName,
-          duration: Math.round(duration)
+          duration: Math.round(metadata.duration),
+          width: metadata.width,
+          height: metadata.height,
+          fileSize: metadata.fileSize,
+          codec: metadata.codec,
+          bitrate: metadata.bitrate,
+          thumbnailPath: generatedThumbnail
         })
       } catch (error) {
         console.error('Error importing video:', error)
