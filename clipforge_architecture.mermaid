@@ -1,0 +1,78 @@
+graph TB
+    subgraph "Electron Main Process"
+        Main[main.js<br/>Window Management<br/>App Lifecycle]
+        Preload[preload.js<br/>Context Bridge<br/>IPC Security Layer]
+        FFmpegHandler[FFmpeg Operations<br/>- Get Duration<br/>- Export Video<br/>- Trim & Encode]
+        FileSystem[File System<br/>- Import Dialog<br/>- Save Dialog<br/>- File Access]
+        
+        Main --> Preload
+        Main --> FFmpegHandler
+        Main --> FileSystem
+    end
+    
+    subgraph "Electron Renderer Process - React App"
+        App[App.jsx<br/>State Management<br/>- clips array<br/>- selectedClip]
+        
+        subgraph "React Components"
+            FileImport[FileImport.jsx<br/>- File Picker Button<br/>- Drag & Drop Zone<br/>- File Validation]
+            Timeline[Timeline.jsx<br/>- Clip Display<br/>- Clip Selection<br/>- Horizontal Scroll]
+            VideoPlayer[VideoPlayer.jsx<br/>- HTML5 Video Element<br/>- Play/Pause Controls<br/>- Seek Bar]
+            TrimControls[TrimControls.jsx<br/>- Start Time Input<br/>- End Time Input<br/>- Validation]
+            ExportButton[ExportButton.jsx<br/>- Export Trigger<br/>- Progress Display<br/>- Status Messages]
+        end
+        
+        App --> FileImport
+        App --> Timeline
+        App --> VideoPlayer
+        App --> TrimControls
+        App --> ExportButton
+    end
+    
+    subgraph "External Dependencies"
+        FFmpegBinary[FFmpeg Binary<br/>ffmpeg-static<br/>Native Video Processing]
+        Vite[Vite<br/>Build Tool<br/>Dev Server]
+        ElectronBuilder[electron-builder<br/>App Packaging<br/>Distribution]
+    end
+    
+    subgraph "User Interactions"
+        User((User))
+        VideoFiles[Video Files<br/>MP4, MOV]
+        ExportedVideo[Exported Video<br/>Trimmed MP4]
+    end
+    
+    %% IPC Communication
+    FileImport -.IPC: import-video.-> Preload
+    FileImport -.IPC: get-video-duration.-> Preload
+    ExportButton -.IPC: export-video.-> Preload
+    Preload -.-> Main
+    
+    %% FFmpeg Operations
+    FFmpegHandler --> FFmpegBinary
+    
+    %% User Flow
+    User --> FileImport
+    VideoFiles --> FileImport
+    User --> Timeline
+    User --> VideoPlayer
+    User --> TrimControls
+    User --> ExportButton
+    ExportButton --> ExportedVideo
+    
+    %% Build Process
+    Vite -.Build.-> App
+    ElectronBuilder -.Package.-> Main
+    
+    %% Data Flow
+    FileImport -->|videoData| App
+    Timeline -->|onClipSelect| App
+    TrimControls -->|trimUpdate| App
+    App -->|selectedClip| VideoPlayer
+    App -->|clips| Timeline
+    App -->|selectedClip| TrimControls
+    App -->|selectedClip| ExportButton
+    
+    style Main fill:#4a90e2
+    style App fill:#e85d75
+    style FFmpegBinary fill:#50c878
+    style User fill:#ffd700
+    style Preload fill:#9b59b6
