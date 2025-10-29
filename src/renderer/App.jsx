@@ -10,6 +10,7 @@ function App() {
   const [clips, setClips] = useState([])
   const [selectedClip, setSelectedClip] = useState(null)
   const [editableClip, setEditableClip] = useState(null) // Clip that can be edited
+  const [lastDropTime, setLastDropTime] = useState(0) // Track last drop time to prevent duplicates
   
   // Timeline state
   const [timeline, setTimeline] = useState({
@@ -77,12 +78,43 @@ function App() {
   }
 
   const handleClipDelete = (clipId) => {
+    console.log('App: Deleting clip from media library:', clipId)
+    
+    // Remove from clips array
     setClips(prevClips => prevClips.filter(clip => clip.id !== clipId))
     
-    // If the deleted clip was selected, clear selection or select another clip
+    // Remove from timeline as well
+    setTimeline(prevTimeline => {
+      const newTimeline = { ...prevTimeline }
+      
+      // Remove the clip from all tracks
+      newTimeline.tracks.forEach(track => {
+        track.clips = track.clips.filter(timelineClip => timelineClip.clipId !== clipId)
+      })
+      
+      // Recalculate timeline duration
+      let maxDuration = 0
+      newTimeline.tracks.forEach(track => {
+        if (track.clips.length > 0) {
+          const lastClip = track.clips[track.clips.length - 1]
+          const trackEndTime = lastClip.startTime + lastClip.duration
+          maxDuration = Math.max(maxDuration, trackEndTime)
+        }
+      })
+      newTimeline.duration = maxDuration
+      
+      console.log('App: Updated timeline after media library deletion:', newTimeline)
+      return newTimeline
+    })
+    
+    // If the deleted clip was selected or editable, clear selection
     if (selectedClip && selectedClip.id === clipId) {
       const remainingClips = clips.filter(clip => clip.id !== clipId)
       setSelectedClip(remainingClips.length > 0 ? remainingClips[0] : null)
+    }
+    
+    if (editableClip && editableClip.id === clipId) {
+      setEditableClip(null)
     }
   }
 
@@ -120,12 +152,17 @@ function App() {
       const track = newTimeline.tracks.find(t => t.id === trackId)
       
       if (track) {
+        console.log('App: Current track clips before adding:', track.clips.map(c => ({ clipId: c.clipId, fileName: c.clip.fileName })))
+        
         // Check if this clip is already in the timeline to prevent duplicates
         const existingClip = track.clips.find(timelineClip => timelineClip.clipId === clip.id)
         if (existingClip) {
-          console.log('App: Clip already exists in timeline, skipping duplicate:', clip.id)
+          console.log('App: Clip already exists in timeline, skipping duplicate:', clip.id, 'existing:', existingClip)
+          console.log('App: All current clips in track:', track.clips.map(c => ({ clipId: c.clipId, fileName: c.clip.fileName })))
           return prevTimeline
         }
+        
+        console.log('App: No existing clip found, proceeding to add:', clip.id)
         
         // Calculate start time (end of last clip in track)
         const lastClip = track.clips[track.clips.length - 1]
@@ -160,12 +197,21 @@ function App() {
   }
 
   const handleClipDrop = (clip, trackId) => {
-    console.log('App: Clip dropped:', clip, 'on track:', trackId)
+    const currentTime = Date.now()
+    console.log('App: Clip dropped:', clip, 'on track:', trackId, 'at time:', currentTime)
+    
+    // Prevent duplicate drops within 500ms
+    if (currentTime - lastDropTime < 500) {
+      console.log('App: Ignoring duplicate drop - too soon after last drop')
+      return
+    }
+    
+    setLastDropTime(currentTime)
     
     // Add a small delay to prevent rapid successive drops
     setTimeout(() => {
       addClipToTimeline(clip, trackId)
-    }, 50)
+    }, 100)
   }
 
   const handleTimelineClipDelete = (trackId, timelineClip) => {
@@ -181,10 +227,12 @@ function App() {
       const track = newTimeline.tracks.find(t => t.id === trackId)
       
       if (track) {
-        // Remove the clip from the track
-        track.clips = track.clips.filter(clip => 
-          !(clip.clipId === timelineClip.clipId && clip.startTime === timelineClip.startTime)
-        )
+        // Remove the clip from the track (by clipId only to ensure complete removal)
+        const beforeCount = track.clips.length
+        track.clips = track.clips.filter(clip => clip.clipId !== timelineClip.clipId)
+        const afterCount = track.clips.length
+        
+        console.log('App: Removed clip from timeline:', timelineClip.clipId, 'clips before:', beforeCount, 'clips after:', afterCount)
         
         // Recalculate timeline duration
         const maxEndTime = Math.max(...track.clips.map(clip => clip.startTime + clip.duration), 0)
@@ -193,6 +241,7 @@ function App() {
         ))
         
         console.log('App: Updated timeline after deletion:', newTimeline)
+        console.log('App: Remaining clips in track:', track.clips.map(c => ({ clipId: c.clipId, fileName: c.clip.fileName })))
       }
       
       return newTimeline
@@ -334,13 +383,14 @@ function App() {
             </div>
             
             <div className="timeline-section">
-              <HorizontalTimeline 
+              <HorizontalTimeline
                 timeline={timeline}
                 onClipSelect={handleTimelineClipSelect}
                 onClipDelete={handleClipDelete}
                 onClipDrop={handleClipDrop}
                 onTimelineClipDelete={handleTimelineClipDelete}
                 onClipTrim={handleTimelineClipTrim}
+                selectedClip={editableClip}
               />
             </div>
             

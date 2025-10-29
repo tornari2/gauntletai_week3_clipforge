@@ -1259,6 +1259,7 @@ body {
   padding: 2px 6px;
   overflow: visible;
   transition: all 0.2s ease;
+  user-select: none;
 }
 
 .timeline-clip-bar:hover {
@@ -1272,62 +1273,40 @@ body {
   border-color: rgba(255, 255, 255, 0.4);
 }
 
-.timeline-clip-bar .timeline-clip-delete {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 16px;
-  height: 16px;
-  border: none;
-  border-radius: 50%;
-  background-color: var(--accent-red);
-  color: white;
-  font-size: 10px;
-  font-weight: bold;
+/* Removed hover delete button - now using right-click context menu */
+
+/* Editable indicator for timeline clips - removed pencil icon */
+
+/* Right-click context menu styling */
+.timeline-clip-context-menu {
+  position: fixed;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  padding: 4px 0;
+  z-index: 1000;
+  min-width: 120px;
+}
+
+.timeline-clip-context-menu-item {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-primary);
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: all 0.2s ease;
-  z-index: 10;
+  transition: background-color 0.2s ease;
 }
 
-.timeline-clip-bar:hover .timeline-clip-delete {
-  opacity: 1;
+.timeline-clip-context-menu-item:hover {
+  background-color: var(--bg-secondary);
 }
 
-.timeline-clip-bar .timeline-clip-delete:hover {
-  background-color: #c0392b;
-  transform: scale(1.1);
+.timeline-clip-context-menu-item.danger {
+  color: var(--accent-red);
 }
 
-/* Editable indicator for timeline clips */
-.timeline-clip-bar::after {
-  content: "✏️";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  font-size: 8px;
-  opacity: 0.7;
-  z-index: 5;
-}
-
-.timeline-clip-bar::before {
-  content: "Hover to Delete";
-  position: absolute;
-  bottom: 2px;
-  left: 2px;
-  font-size: 6px;
-  color: rgba(255, 255, 255, 0.6);
-  opacity: 0;
-  transition: opacity 0.2s ease;
-  pointer-events: none;
-  z-index: 5;
-}
-
-.timeline-clip-bar:hover::before {
-  opacity: 1;
+.timeline-clip-context-menu-item.danger:hover {
+  background-color: rgba(231, 76, 60, 0.1);
 }
 
 .clip-name {
@@ -1353,6 +1332,82 @@ body {
   right: 2px;
   font-size: 8px;
   opacity: 0.9;
+}
+
+/* Resize handles for timeline clips */
+.timeline-clip-resize-handle {
+  position: absolute;
+  top: 0;
+  width: 12px;
+  height: 100%;
+  cursor: ew-resize;
+  background-color: rgba(255, 255, 255, 0.4);
+  opacity: 0;
+  transition: all 0.15s ease;
+  z-index: 15;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.timeline-clip-resize-handle:hover {
+  background-color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(255, 255, 255, 0.6);
+  transform: scaleY(1.05);
+}
+
+.timeline-clip-bar:hover .timeline-clip-resize-handle {
+  opacity: 1;
+}
+
+.timeline-clip-resize-handle.left {
+  left: -6px;
+  border-radius: 3px 0 0 3px;
+}
+
+.timeline-clip-resize-handle.right {
+  right: -6px;
+  border-radius: 0 3px 3px 0;
+}
+
+/* Visual feedback during drag */
+.timeline-clip-bar.dragging {
+  opacity: 0.9;
+  transform: scale(1.03);
+  z-index: 20;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.timeline-clip-bar.dragging .timeline-clip-resize-handle {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.8);
+  transform: scaleY(1.1);
+}
+
+/* Disabled resize handles */
+.timeline-clip-resize-handle.disabled {
+  cursor: not-allowed;
+  background-color: rgba(128, 128, 128, 0.3);
+  border-color: rgba(128, 128, 128, 0.2);
+  opacity: 0.3;
+}
+
+.timeline-clip-resize-handle.disabled:hover {
+  background-color: rgba(128, 128, 128, 0.4);
+  border-color: rgba(128, 128, 128, 0.3);
+  transform: none;
+}
+
+/* Enabled resize handles */
+.timeline-clip-resize-handle.enabled {
+  cursor: ew-resize;
+  background-color: rgba(255, 255, 255, 0.4);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.timeline-clip-resize-handle.enabled:hover {
+  background-color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(255, 255, 255, 0.6);
+  transform: scaleY(1.05);
 }
 
 /* Timeline Section Layout */
