@@ -104,11 +104,17 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     const video = videoRef.current
     if (!video) return
 
-    const handleTimeUpdate = () => {
-      if (!currentClip) return
-      
-      const videoTime = video.currentTime
-      const timeInClip = videoTime - currentClip.trimStart
+  const handleTimeUpdate = () => {
+    if (!currentClip) return
+    
+    const videoTime = video.currentTime
+    const timeInClip = videoTime - currentClip.trimStart
+    
+    console.log('TimelinePreview: timeupdate event fired!', {
+      videoTime,
+      videoPaused: video.paused,
+      videoReadyState: video.readyState
+    })
       
       console.log('TimelinePreview: Time update:', {
         videoTime,
@@ -117,7 +123,8 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         timeInClip,
         currentClipIndex,
         totalClips: clips.length,
-        isPlaying
+        isPlaying,
+        accumulatedTime: clips.slice(0, currentClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
       })
       
       // Check if we've exceeded the trim end point
@@ -157,6 +164,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         
         // Update timeline playhead position
         if (onPlayheadMove) {
+          console.log('TimelinePreview: Updating playhead to:', timelineTime)
           onPlayheadMove(timelineTime)
         }
       }
@@ -215,12 +223,15 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     video.addEventListener('loadedmetadata', handleLoadedMetadata)
     video.addEventListener('ended', handleEnded)
     video.addEventListener('error', handleError)
+    
+    console.log('TimelinePreview: Added event listeners to video')
 
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate)
       video.removeEventListener('loadedmetadata', handleLoadedMetadata)
       video.removeEventListener('ended', handleEnded)
       video.removeEventListener('error', handleError)
+      console.log('TimelinePreview: Removed event listeners from video')
     }
   }, [currentClip, currentClipIndex, clips, totalDuration, timeInCurrentClip])
 
@@ -228,10 +239,13 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     const video = videoRef.current
     if (!video || !currentClip) return
 
+    console.log('TimelinePreview: Toggle play/pause, current state:', isPlaying)
+
     if (isPlaying) {
       video.pause()
       setIsPlaying(false)
       shouldPlayRef.current = false
+      console.log('TimelinePreview: Paused video')
     } else {
       // If at the end, restart from beginning
       if (currentTime >= totalDuration) {
@@ -241,6 +255,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       video.play()
       setIsPlaying(true)
       shouldPlayRef.current = false
+      console.log('TimelinePreview: Started playing video')
     }
   }
 
