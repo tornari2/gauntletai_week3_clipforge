@@ -27,36 +27,12 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       setCurrentClipIndex(0)
       // Start at the beginning of the first clip's trimmed portion
       setCurrentTime(0)
-      // Update playhead to start of first clip's trimmed portion
-      if (onPlayheadMove) {
-        onPlayheadMove(0)
-      }
     }
   }, [timeline])
 
   // Get current clip info with bounds checking
   const safeClipIndex = Math.min(Math.max(0, currentClipIndex), clips.length - 1)
   const currentClip = clips[safeClipIndex]
-  const currentClipTrimDuration = currentClip ? currentClip.trimEnd - currentClip.trimStart : 0
-  
-  // Calculate time in current clip more safely
-  const timeInCurrentClip = (() => {
-    if (!currentClip) return 0
-    const accumulatedTime = clips.slice(0, currentClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
-    const timeInClip = Math.max(0, currentTime - accumulatedTime)
-    
-    // Debug logging
-    console.log('TimelinePreview: Time calculation debug:', {
-      currentTime,
-      currentClipIndex,
-      accumulatedTime,
-      timeInClip,
-      currentClipTrimStart: currentClip.trimStart,
-      currentClipTrimEnd: currentClip.trimEnd
-    })
-    
-    return timeInClip
-  })()
 
   // Load current clip
   useEffect(() => {
@@ -65,7 +41,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
 
     console.log('TimelinePreview: Loading clip', currentClipIndex, ':', currentClip.clip.fileName)
     console.log('TimelinePreview: Trim range:', currentClip.trimStart, 'to', currentClip.trimEnd)
-    console.log('TimelinePreview: Should play:', isPlaying || shouldPlayRef.current)
+    console.log('TimelinePreview: Should play:', shouldPlayRef.current)
     
     // Use custom local:// protocol
     const localSrc = `local://${currentClip.clip.filePath.startsWith('/') ? currentClip.clip.filePath : '/' + currentClip.clip.filePath}`
@@ -86,7 +62,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     }
     
     // If we should be playing, start playing after the video is ready
-    if (isPlaying || shouldPlayRef.current) {
+    if (shouldPlayRef.current) {
       console.log('TimelinePreview: Setting up auto-play for next clip')
       const handleCanPlay = () => {
         console.log('TimelinePreview: Video can play, starting playback')
@@ -97,7 +73,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       }
       video.addEventListener('canplay', handleCanPlay)
     }
-  }, [currentClip, currentClipIndex, isPlaying])
+  }, [currentClip, currentClipIndex, clips, onPlayheadMove])
 
   // Handle video events
   useEffect(() => {
@@ -110,11 +86,14 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     const videoTime = video.currentTime
     const timeInClip = videoTime - currentClip.trimStart
     
-    // console.log('TimelinePreview: timeupdate event fired!', {
-    //   videoTime,
-    //   videoPaused: video.paused,
-    //   videoReadyState: video.readyState
-    // })
+    console.log('TimelinePreview: timeupdate event fired!', {
+      videoTime,
+      timeInClip,
+      videoPaused: video.paused,
+      videoReadyState: video.readyState,
+      currentClipIndex,
+      totalClips: clips.length
+    })
       
       // Check if we've exceeded the trim end point
       if (videoTime >= currentClip.trimEnd) {
@@ -150,7 +129,10 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         
         // Update timeline playhead position
         if (onPlayheadMove) {
+          console.log('TimelinePreview: Calling onPlayheadMove with:', timelineTime)
           onPlayheadMove(timelineTime)
+        } else {
+          console.warn('TimelinePreview: onPlayheadMove is not defined!')
         }
       }
     }
@@ -215,7 +197,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       video.removeEventListener('ended', handleEnded)
       video.removeEventListener('error', handleError)
     }
-  }, [currentClip, currentClipIndex, clips, totalDuration])
+  }, [currentClip, currentClipIndex, clips, totalDuration, isPlaying, onPlayheadMove])
 
   const togglePlayPause = () => {
     const video = videoRef.current
