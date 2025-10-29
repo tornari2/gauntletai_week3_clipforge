@@ -2,6 +2,9 @@ import React, { useRef, useState, useEffect } from 'react'
 
 const TimelinePreview = ({ timeline, onPlayheadMove }) => {
   const videoRef = useRef(null)
+  const progressBarRef = useRef(null)
+  const seekHandleRef = useRef(null)
+  const timeDisplayRef = useRef(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [currentClipIndex, setCurrentClipIndex] = useState(0)
@@ -27,8 +30,15 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     // Reset to first clip when timeline changes
     if (timelineClips.length > 0) {
       setCurrentClipIndex(0)
-      // Start at the beginning of the first clip's trimmed portion
+      // Start at the first clip's position on the timeline (its startTime)
+      const firstClipStartTime = timelineClips[0].startTime
       setCurrentTime(0)
+      currentTimeRef.current = 0
+      
+      // Update playhead to the first clip's position on the timeline
+      if (onPlayheadMove) {
+        onPlayheadMove(firstClipStartTime)
+      }
     }
   }, [timeline])
 
@@ -92,9 +102,10 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
           setCurrentTime(nextClipTimelineTime)
           currentTimeRef.current = nextClipTimelineTime
           
-          // Update playhead to the start of the next clip's trimmed portion
-          if (onPlayheadMove) {
-            onPlayheadMove(nextClipTimelineTime)
+          // Update playhead to the next clip's position on the timeline (its startTime)
+          const nextClip = clips[nextClipIndex]
+          if (onPlayheadMove && nextClip) {
+            onPlayheadMove(nextClip.startTime)
           }
         } else {
           // End of timeline
@@ -113,12 +124,26 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         const timelineTime = accumulatedTime + timeInClip
         currentTimeRef.current = timelineTime
         
-        // Throttle playhead updates using requestAnimationFrame
+        // Calculate playhead position on the timeline (add the current clip's startTime)
+        const playheadPosition = currentClip.startTime + timeInClip
+        
+        // Update progress bar DOM directly (no re-render)
+        if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
+          const progress = (timelineTime / totalDuration) * 100
+          progressBarRef.current.style.width = `${progress}%`
+          seekHandleRef.current.style.left = `${progress}%`
+        }
+        
+        // Update time display
+        if (timeDisplayRef.current) {
+          timeDisplayRef.current.textContent = `${formatTime(timelineTime)} / ${formatTime(totalDuration)}`
+        }
+        
+        // Throttle playhead and state updates using requestAnimationFrame
         if (animationFrameRef.current === null) {
           animationFrameRef.current = requestAnimationFrame(() => {
-            setCurrentTime(timelineTime)
             if (onPlayheadMove) {
-              onPlayheadMove(timelineTime)
+              onPlayheadMove(playheadPosition)
             }
             animationFrameRef.current = null
           })
@@ -315,7 +340,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
               {isPlaying ? '⏸️' : '▶️'}
             </button>
             
-            <div className="video-time-display">
+            <div className="video-time-display" ref={timeDisplayRef}>
               {formatTime(currentTime)} / {formatTime(totalDuration)}
             </div>
             
@@ -331,12 +356,14 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
             >
               <div 
                 className="video-seek-progress"
+                ref={progressBarRef}
                 style={{
                   width: `${totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0}%`
                 }}
               />
               <div 
                 className="video-seek-handle"
+                ref={seekHandleRef}
                 style={{
                   left: `${totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0}%`
                 }}
