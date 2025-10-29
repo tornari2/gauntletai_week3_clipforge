@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react'
 
-const TimelinePreview = ({ timeline }) => {
+const TimelinePreview = ({ timeline, onPlayheadMove }) => {
   const videoRef = useRef(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -25,7 +25,12 @@ const TimelinePreview = ({ timeline }) => {
     // Reset to first clip when timeline changes
     if (timelineClips.length > 0) {
       setCurrentClipIndex(0)
+      // Start at the beginning of the first clip's trimmed portion
       setCurrentTime(0)
+      // Update playhead to start of first clip's trimmed portion
+      if (onPlayheadMove) {
+        onPlayheadMove(0)
+      }
     }
   }, [timeline])
 
@@ -68,13 +73,17 @@ const TimelinePreview = ({ timeline }) => {
     video.src = localSrc
     video.load()
     
-    // Set initial position to trim start
-    video.currentTime = currentClip.trimStart + timeInCurrentClip
+    // Set initial position to trim start (always start at the beginning of the trimmed portion)
+    video.currentTime = currentClip.trimStart
     
-    // Update timeline time correctly
+    // Update timeline time correctly - start at the beginning of this clip's trimmed portion
     const accumulatedTime = clips.slice(0, currentClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
-    const timelineTime = accumulatedTime + timeInCurrentClip
-    setCurrentTime(timelineTime)
+    setCurrentTime(accumulatedTime)
+    
+    // Update timeline playhead position
+    if (onPlayheadMove) {
+      onPlayheadMove(accumulatedTime)
+    }
     
     // If we should be playing, start playing after the video is ready
     if (isPlaying || shouldPlayRef.current) {
@@ -122,7 +131,16 @@ const TimelinePreview = ({ timeline }) => {
             console.log('TimelinePreview: Setting clip index to:', prev + 1)
             return prev + 1
           })
-          setCurrentTime(0)
+          
+          // Calculate the timeline time for the start of the next clip's trimmed portion
+          const nextClipIndex = currentClipIndex + 1
+          const nextClipTimelineTime = clips.slice(0, nextClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
+          setCurrentTime(nextClipTimelineTime)
+          
+          // Update playhead to the start of the next clip's trimmed portion
+          if (onPlayheadMove) {
+            onPlayheadMove(nextClipTimelineTime)
+          }
         } else {
           console.log('TimelinePreview: End of timeline reached')
           // End of timeline
@@ -136,17 +154,27 @@ const TimelinePreview = ({ timeline }) => {
         const accumulatedTime = clips.slice(0, currentClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
         const timelineTime = accumulatedTime + timeInClip
         setCurrentTime(timelineTime)
+        
+        // Update timeline playhead position
+        if (onPlayheadMove) {
+          onPlayheadMove(timelineTime)
+        }
       }
     }
 
     const handleLoadedMetadata = () => {
       if (currentClip) {
-        video.currentTime = currentClip.trimStart + timeInCurrentClip
+        // Always start at the beginning of the trimmed portion
+        video.currentTime = currentClip.trimStart
         
-        // Update timeline time correctly
+        // Update timeline time correctly - start at the beginning of this clip's trimmed portion
         const accumulatedTime = clips.slice(0, currentClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
-        const timelineTime = accumulatedTime + timeInCurrentClip
-        setCurrentTime(timelineTime)
+        setCurrentTime(accumulatedTime)
+        
+        // Update timeline playhead position
+        if (onPlayheadMove) {
+          onPlayheadMove(accumulatedTime)
+        }
       }
     }
 
@@ -155,13 +183,27 @@ const TimelinePreview = ({ timeline }) => {
       if (currentClipIndex < clips.length - 1) {
         console.log('TimelinePreview: Clip ended, moving to next clip')
         shouldPlayRef.current = isPlaying
-        setCurrentClipIndex(prev => prev + 1)
-        setCurrentTime(0)
+        setCurrentClipIndex(prev => {
+          const nextIndex = prev + 1
+          // Calculate the timeline time for the start of the next clip's trimmed portion
+          const nextClipTimelineTime = clips.slice(0, nextIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
+          setCurrentTime(nextClipTimelineTime)
+          
+          // Update playhead to the start of the next clip's trimmed portion
+          if (onPlayheadMove) {
+            onPlayheadMove(nextClipTimelineTime)
+          }
+          
+          return nextIndex
+        })
       } else {
         console.log('TimelinePreview: End of timeline reached')
         setIsPlaying(false)
         shouldPlayRef.current = false
         setCurrentTime(totalDuration)
+        if (onPlayheadMove) {
+          onPlayheadMove(totalDuration)
+        }
       }
     }
 
@@ -234,6 +276,11 @@ const TimelinePreview = ({ timeline }) => {
     const targetClip = clips[targetClipIndex]
     video.currentTime = targetClip.trimStart + timeInTargetClip
     setCurrentTime(newTimelineTime)
+    
+    // Update timeline playhead position
+    if (onPlayheadMove) {
+      onPlayheadMove(newTimelineTime)
+    }
   }
 
   const formatTime = (time) => {

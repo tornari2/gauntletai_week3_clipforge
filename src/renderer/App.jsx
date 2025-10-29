@@ -669,7 +669,7 @@ function App() {
                 const hasTimelineClips = mainTrack?.clips?.length > 0
                 
                 if (hasTimelineClips) {
-                  return <TimelinePreview timeline={timeline} />
+                  return <TimelinePreview timeline={timeline} onPlayheadMove={handlePlayheadMove} />
                 } else {
                   return <VideoPlayer selectedClip={editableClip || selectedClip} />
                 }

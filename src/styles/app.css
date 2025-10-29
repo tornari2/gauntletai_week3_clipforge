@@ -1421,6 +1421,7 @@ body {
   width: 2px;
   z-index: 100;
   pointer-events: none;
+  transition: left 0.1s ease;
 }
 
 .playhead-handle {
