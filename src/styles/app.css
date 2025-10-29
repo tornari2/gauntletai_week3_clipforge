@@ -621,6 +621,129 @@ body {
   object-fit: contain;
 }
 
+.video-trim-info {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.trim-badge {
+  background-color: rgba(74, 144, 226, 0.9);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.trim-range-detail {
+  font-weight: 400;
+  opacity: 0.9;
+  font-size: 12px;
+}
+
+/* Custom Video Controls */
+.custom-video-controls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+  padding: 20px 16px 16px 16px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.video-container:hover .custom-video-controls {
+  opacity: 1;
+}
+
+.video-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.video-control-btn {
+  background: rgba(255, 255, 255, 0.9);
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.2s ease;
+}
+
+.video-control-btn:hover {
+  background: rgba(255, 255, 255, 1);
+}
+
+.video-time-display {
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.video-clip-info {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  font-weight: 400;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-seek-container {
+  width: 100%;
+  position: relative;
+}
+
+.video-seek-bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+  cursor: pointer;
+  position: relative;
+}
+
+.video-seek-progress {
+  height: 100%;
+  background: var(--accent-blue);
+  border-radius: 3px;
+  transition: width 0.1s ease;
+}
+
+.video-seek-handle {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: left 0.1s ease;
+}
+
+.video-seek-handle:hover {
+  transform: translate(-50%, -50%) scale(1.2);
+}
+
 .video-controls {
   display: flex;
   align-items: center;

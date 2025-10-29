@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Video export
   exportVideo: (options) => ipcRenderer.invoke('export-video', options),
+  exportTimeline: (options) => ipcRenderer.invoke('export-timeline', options),
   
   // Export event listeners
   onExportProgress: (callback) => {

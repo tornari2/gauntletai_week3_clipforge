@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 
-const ExportButton = ({ selectedClip }) => {
+const ExportButton = ({ selectedClip, timeline }) => {
   const [isExporting, setIsExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState(0)
   const [exportStatus, setExportStatus] = useState('')
@@ -72,7 +72,15 @@ const ExportButton = ({ selectedClip }) => {
   }, [])
 
   const handleExport = async () => {
-    if (!selectedClip) return
+    // Get all clips from the main track (track 1)
+    const mainTrack = timeline?.tracks?.find(track => track.id === 1)
+    const clips = mainTrack?.clips || []
+    
+    if (clips.length === 0) {
+      setExportStatus('No clips in timeline to export')
+      setTimeout(() => setExportStatus(''), 3000)
+      return
+    }
 
     try {
       setIsExporting(true)
@@ -89,16 +97,18 @@ const ExportButton = ({ selectedClip }) => {
 
       setExportStatus('Exporting video...')
 
-      // Calculate trim parameters
-      const startTime = selectedClip.trimStart
-      const duration = selectedClip.trimEnd - selectedClip.trimStart
+      // Prepare clips data for stitching
+      const clipsData = clips.map(timelineClip => ({
+        filePath: timelineClip.clip.filePath,
+        startTime: timelineClip.trimStart,
+        duration: timelineClip.trimEnd - timelineClip.trimStart,
+        timelineStart: timelineClip.startTime
+      }))
 
-      // Call export function
-      await window.electronAPI.exportVideo({
-        inputPath: selectedClip.filePath,
+      // Call export function with multiple clips
+      await window.electronAPI.exportTimeline({
+        clips: clipsData,
         outputPath,
-        startTime,
-        duration,
         resolution: selectedResolution
       })
 
@@ -142,25 +152,39 @@ const ExportButton = ({ selectedClip }) => {
     return `~${formatFileSize(fileSizeBytes)}`
   }
 
-  if (!selectedClip) {
+  // Get timeline info
+  const mainTrack = timeline?.tracks?.find(track => track.id === 1)
+  const clips = mainTrack?.clips || []
+  // Calculate total duration as sum of trimmed durations
+  const totalDuration = clips.reduce((total, timelineClip) => {
+    return total + (timelineClip.trimEnd - timelineClip.trimStart)
+  }, 0)
+
+  if (clips.length === 0) {
     return (
       <div className="export-button">
         <h3>Export Video</h3>
-        <p className="text-muted">Select a clip to enable export</p>
+        <p className="text-muted">Add clips to the timeline to enable export</p>
       </div>
     )
   }
-
-  const trimDuration = selectedClip.trimEnd - selectedClip.trimStart
 
   return (
     <div className="export-button">
       <h3>Export Video</h3>
       <p className="text-muted">
-        Exporting: {selectedClip.fileName}
+        Exporting: {clips.length} clip{clips.length !== 1 ? 's' : ''} from timeline
       </p>
       <p className="text-muted">
-        Duration: {formatTime(trimDuration)} (from {formatTime(selectedClip.trimStart)} to {formatTime(selectedClip.trimEnd)})
+        Total Duration: {formatTime(totalDuration)}
+      </p>
+      <p className="text-muted">
+        Clips: {clips.map((clip, index) => (
+          <span key={index}>
+            {clip.clip.fileName} ({formatTime(clip.trimEnd - clip.trimStart)})
+            {index < clips.length - 1 ? ', ' : ''}
+          </span>
+        ))}
       </p>
 
       <div className="export-options">
@@ -184,7 +208,7 @@ const ExportButton = ({ selectedClip }) => {
         <div className="file-size-estimate">
           <span className="file-size-label">Expected file size:</span>
           <span className="file-size-value">
-            {calculateExpectedFileSize(trimDuration, selectedResolution)}
+            {calculateExpectedFileSize(totalDuration, selectedResolution)}
           </span>
         </div>
       </div>

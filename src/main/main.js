@@ -662,6 +662,94 @@ ipcMain.handle('export-video', async (event, options) => {
   }
 })
 
+// Export timeline (multiple clips stitched together)
+ipcMain.handle('export-timeline', async (event, options) => {
+  const { clips, outputPath, resolution = 'original' } = options
+  
+  try {
+    console.log('Main: Exporting timeline with', clips.length, 'clips')
+    
+    return new Promise((resolve, reject) => {
+      // Create a complex filter for concatenating videos
+      let filterComplex = ''
+      let inputs = []
+      
+      // Build input array and filter complex
+      clips.forEach((clip, index) => {
+        inputs.push('-i', clip.filePath)
+        
+        // Create trim filter for each clip
+        const trimFilter = `[${index}:v]trim=start=${clip.startTime}:duration=${clip.duration},setpts=PTS-STARTPTS[v${index}];[${index}:a]atrim=start=${clip.startTime}:duration=${clip.duration},asetpts=PTS-STARTPTS[a${index}]`
+        filterComplex += trimFilter + ';'
+      })
+      
+      // Concatenate all clips
+      const concatVideo = clips.map((_, index) => `[v${index}]`).join('') + `concat=n=${clips.length}:v=1:a=1[outv][outa]`
+      filterComplex += concatVideo
+      
+      console.log('Main: Filter complex:', filterComplex)
+      
+      let command = ffmpeg()
+      
+      // Add all inputs
+      command.inputs(inputs)
+      
+      // Apply filter complex
+      command.complexFilter(filterComplex)
+      
+      // Map outputs
+      command.outputOptions(['-map', '[outv]', '-map', '[outa]'])
+      
+      // Set output file
+      command.output(outputPath)
+      
+      // Set codecs
+      command.videoCodec('libx264')
+      command.audioCodec('aac')
+      
+      // Apply resolution scaling and bitrate if not original
+      if (resolution !== 'original') {
+        const resolutionMap = {
+          '4K': { size: '3840:2160', bitrate: '15000k' },
+          '1080p': { size: '1920:1080', bitrate: '5000k' },
+          '720p': { size: '1280:720', bitrate: '2500k' },
+          '480p': { size: '854:480', bitrate: '1000k' },
+          '360p': { size: '640:360', bitrate: '500k' }
+        }
+        
+        if (resolutionMap[resolution]) {
+          command = command
+            .size(resolutionMap[resolution].size)
+            .videoBitrate(resolutionMap[resolution].bitrate)
+          console.log(`Main: Scaling timeline to ${resolution} (${resolutionMap[resolution].size}) with bitrate ${resolutionMap[resolution].bitrate}`)
+        }
+      }
+      
+      command
+        .on('progress', (progress) => {
+          // Send progress updates to renderer
+          mainWindow.webContents.send('export-progress', {
+            percent: Math.round(progress.percent || 0)
+          })
+        })
+        .on('end', () => {
+          console.log('Main: Timeline export completed successfully')
+          mainWindow.webContents.send('export-complete')
+          resolve({ success: true })
+        })
+        .on('error', (err) => {
+          console.error('Main: FFmpeg timeline export error:', err)
+          mainWindow.webContents.send('export-error', err.message)
+          reject(err)
+        })
+        .run()
+    })
+  } catch (error) {
+    console.error('Error exporting timeline:', error)
+    throw error
+  }
+})
+
 // Recording IPC Handlers
 
 // List available video sources (screens/windows)

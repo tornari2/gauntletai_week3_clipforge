@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import MediaLibrary from './components/MediaLibrary'
 import VideoPlayer from './components/VideoPlayer'
+import TimelinePreview from './components/TimelinePreview'
 import TrimControls from './components/TrimControls'
 import ExportButton from './components/ExportButton'
 import RecordingPanel from './components/RecordingPanel'
@@ -663,7 +664,16 @@ function App() {
           
           <div className="main-content">
             <div className="player-section">
-              <VideoPlayer selectedClip={selectedClip} />
+              {(() => {
+                const mainTrack = timeline?.tracks?.find(track => track.id === 1)
+                const hasTimelineClips = mainTrack?.clips?.length > 0
+                
+                if (hasTimelineClips) {
+                  return <TimelinePreview timeline={timeline} />
+                } else {
+                  return <VideoPlayer selectedClip={editableClip || selectedClip} />
+                }
+              })()}
             </div>
             
             <div className="timeline-section">
@@ -691,7 +701,7 @@ function App() {
                 selectedClip={editableClip} 
                 onTrimUpdate={handleTrimUpdate}
               />
-              <ExportButton selectedClip={editableClip} />
+              <ExportButton selectedClip={editableClip} timeline={timeline} />
             </div>
           </div>
         </div>
