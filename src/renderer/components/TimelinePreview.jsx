@@ -9,6 +9,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
   const [clips, setClips] = useState([])
   const shouldPlayRef = useRef(false) // Track if we should be playing during transitions
   const animationFrameRef = useRef(null) // For throttling playhead updates
+  const currentTimeRef = useRef(0) // Track current time without causing re-renders
 
   // Get clips from main track and calculate timeline info
   useEffect(() => {
@@ -67,27 +68,6 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     }
   }, [currentClip, currentClipIndex])
 
-  // Sync playhead position with currentTime (throttled to avoid flickering)
-  useEffect(() => {
-    if (!onPlayheadMove || currentTime === undefined) return
-    
-    // Cancel any pending animation frame
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-    }
-    
-    // Schedule update on next animation frame
-    animationFrameRef.current = requestAnimationFrame(() => {
-      onPlayheadMove(currentTime)
-    })
-    
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
-      }
-    }
-  }, [currentTime, onPlayheadMove])
-
   // Handle video events
   useEffect(() => {
     const video = videoRef.current
@@ -110,6 +90,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
           const nextClipIndex = currentClipIndex + 1
           const nextClipTimelineTime = clips.slice(0, nextClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
           setCurrentTime(nextClipTimelineTime)
+          currentTimeRef.current = nextClipTimelineTime
           
           // Update playhead to the start of the next clip's trimmed portion
           if (onPlayheadMove) {
@@ -121,6 +102,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
           setIsPlaying(false)
           shouldPlayRef.current = false
           setCurrentTime(totalDuration)
+          currentTimeRef.current = totalDuration
           if (onPlayheadMove) {
             onPlayheadMove(totalDuration)
           }
@@ -129,7 +111,18 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         // Update current time within the timeline
         const accumulatedTime = clips.slice(0, currentClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
         const timelineTime = accumulatedTime + timeInClip
-        setCurrentTime(timelineTime)
+        currentTimeRef.current = timelineTime
+        
+        // Throttle playhead updates using requestAnimationFrame
+        if (animationFrameRef.current === null) {
+          animationFrameRef.current = requestAnimationFrame(() => {
+            setCurrentTime(timelineTime)
+            if (onPlayheadMove) {
+              onPlayheadMove(timelineTime)
+            }
+            animationFrameRef.current = null
+          })
+        }
       }
     }
 
