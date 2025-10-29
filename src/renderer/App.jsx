@@ -378,7 +378,11 @@ function App() {
     const playheadTime = timeline.playheadPosition
     
     setTimeline(prevTimeline => {
-      const newTimeline = { ...prevTimeline }
+      // Deep copy the timeline to avoid mutation
+      const newTimeline = {
+        ...prevTimeline,
+        tracks: prevTimeline.tracks.map(t => ({ ...t, clips: [...t.clips] }))
+      }
       
       // Find clip under playhead in active region
       for (const track of newTimeline.tracks) {
@@ -392,35 +396,53 @@ function App() {
             // Calculate split point in original video time
             const splitTimeInOriginal = clip.trimStart + (playheadTime - clip.startTime)
             
-            // Clip 1: Keep start, trim at split point
+            // Calculate durations for each segment
+            const segment1Duration = splitTimeInOriginal - clip.trimStart
+            const segment2Duration = clip.trimEnd - splitTimeInOriginal
+            
+            // Clip 1: First segment (no dead space)
             const clip1 = {
-              ...clip,
-              trimEnd: splitTimeInOriginal
+              clipId: Date.now(),
+              startTime: 0, // Will be repositioned
+              trimStart: 0,
+              trimEnd: segment1Duration,
+              clip: {
+                ...clip.clip,
+                duration: segment1Duration,
+                sourceOffset: clip.trimStart, // Where in original video this starts
+                isSegment: true
+              }
             }
             
-            // Clip 2: Trim start to split point, keep end
+            // Clip 2: Second segment (no dead space)
             const clip2 = {
-              ...clip,
               clipId: Date.now() + 1,
-              trimStart: splitTimeInOriginal
+              startTime: 0, // Will be repositioned
+              trimStart: 0,
+              trimEnd: segment2Duration,
+              clip: {
+                ...clip.clip,
+                duration: segment2Duration,
+                sourceOffset: splitTimeInOriginal, // Where in original video this starts
+                isSegment: true
+              }
             }
             
-            // Replace clip with two split clips
-            track.clips.splice(i, 1, clip1, clip2)
+            // Replace original clip with two split clips
+            track.clips[i] = clip1
+            track.clips.splice(i + 1, 0, clip2)
             
-            // Reposition all clips in track
+            // Reposition all clips in track end-to-end
             track.clips = repositionClipsInTrack(track.clips)
             
             // Recalculate timeline duration
             newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
             
-            console.log('App: Split clip at playhead:', playheadTime, 'original time:', splitTimeInOriginal)
             return newTimeline
           }
         }
       }
       
-      console.log('App: No clip found at playhead position:', playheadTime)
       return prevTimeline
     })
   }
@@ -428,7 +450,11 @@ function App() {
   // Split clip at center of active region
   const handleClipSplitAtCenter = (trackId, clipId) => {
     setTimeline(prevTimeline => {
-      const newTimeline = { ...prevTimeline }
+      // Deep copy the timeline to avoid mutation
+      const newTimeline = {
+        ...prevTimeline,
+        tracks: prevTimeline.tracks.map(t => ({ ...t, clips: [...t.clips] }))
+      }
       const track = newTimeline.tracks.find(t => t.id === trackId)
       
       if (track) {
@@ -440,29 +466,47 @@ function App() {
           const activeDuration = clip.trimEnd - clip.trimStart
           const splitTimeInOriginal = clip.trimStart + (activeDuration / 2)
           
-          // Clip 1: Keep start, trim at split point
+          // Calculate durations for each segment
+          const segment1Duration = splitTimeInOriginal - clip.trimStart
+          const segment2Duration = clip.trimEnd - splitTimeInOriginal
+          
+          // Clip 1: First segment (no dead space)
           const clip1 = {
-            ...clip,
-            trimEnd: splitTimeInOriginal
+            clipId: Date.now(),
+            startTime: 0, // Will be repositioned
+            trimStart: 0,
+            trimEnd: segment1Duration,
+            clip: {
+              ...clip.clip,
+              duration: segment1Duration,
+              sourceOffset: clip.trimStart, // Where in original video this starts
+              isSegment: true
+            }
           }
           
-          // Clip 2: Trim start to split point, keep end
+          // Clip 2: Second segment (no dead space)
           const clip2 = {
-            ...clip,
             clipId: Date.now() + 1,
-            trimStart: splitTimeInOriginal
+            startTime: 0, // Will be repositioned
+            trimStart: 0,
+            trimEnd: segment2Duration,
+            clip: {
+              ...clip.clip,
+              duration: segment2Duration,
+              sourceOffset: splitTimeInOriginal, // Where in original video this starts
+              isSegment: true
+            }
           }
           
-          // Replace clip with two split clips
-          track.clips.splice(clipIndex, 1, clip1, clip2)
+          // Replace original clip with two split clips
+          track.clips[clipIndex] = clip1
+          track.clips.splice(clipIndex + 1, 0, clip2)
           
-          // Reposition all clips in track
+          // Reposition all clips in track end-to-end
           track.clips = repositionClipsInTrack(track.clips)
           
           // Recalculate timeline duration
           newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
-          
-          console.log('App: Split clip at center:', splitTimeInOriginal)
         }
       }
       
@@ -473,7 +517,11 @@ function App() {
   // Reposition clip to new track/index
   const handleClipReposition = (clipId, sourceTrackId, targetTrackId, targetIndex) => {
     setTimeline(prevTimeline => {
-      const newTimeline = { ...prevTimeline }
+      // Deep copy the timeline to avoid mutation
+      const newTimeline = {
+        ...prevTimeline,
+        tracks: prevTimeline.tracks.map(t => ({ ...t, clips: [...t.clips] }))
+      }
       
       const sourceTrack = newTimeline.tracks.find(t => t.id === sourceTrackId)
       const targetTrack = newTimeline.tracks.find(t => t.id === targetTrackId)
@@ -484,19 +532,22 @@ function App() {
       const clipIndex = sourceTrack.clips.findIndex(c => c.clipId === clipId)
       if (clipIndex < 0) return prevTimeline
       
-      const [clip] = sourceTrack.clips.splice(clipIndex, 1)
+      const clip = sourceTrack.clips[clipIndex]
+      sourceTrack.clips = sourceTrack.clips.filter((_, i) => i !== clipIndex)
       
       // Insert into target track at specified index
       targetTrack.clips.splice(targetIndex, 0, clip)
       
       // Reposition clips in both tracks
       sourceTrack.clips = repositionClipsInTrack(sourceTrack.clips)
-      targetTrack.clips = repositionClipsInTrack(targetTrack.clips)
+      
+      if (sourceTrackId !== targetTrackId) {
+        targetTrack.clips = repositionClipsInTrack(targetTrack.clips)
+      }
       
       // Recalculate timeline duration
       newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
       
-      console.log('App: Repositioned clip:', clipId, 'to track:', targetTrackId, 'index:', targetIndex)
       return newTimeline
     })
   }
