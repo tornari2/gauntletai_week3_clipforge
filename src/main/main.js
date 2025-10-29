@@ -10,7 +10,7 @@ function setupFFmpegPaths() {
   let ffprobeExecutable = ffprobePath
   
   // In production, the executables might be in a different location
-  if (app.isPackaged) {
+  if (app && app.isPackaged) {
     console.log('Setting up FFmpeg paths for production build')
     
     // Try to find FFmpeg in the packaged app (prioritize unpacked versions)
@@ -57,13 +57,13 @@ function setupFFmpegPaths() {
   ffmpeg.setFfprobePath(ffprobeExecutable)
 }
 
-// Configure FFmpeg paths
-setupFFmpegPaths()
-
 // We'll use the custom protocol instead of HTTP server
 
 // Register custom protocol for local files
 app.whenReady().then(() => {
+  // Configure FFmpeg paths after app is ready
+  setupFFmpegPaths()
+  
   protocol.registerFileProtocol('local', (request, callback) => {
     let filePath = request.url.substr(7) // Remove 'local://' prefix
     
@@ -229,7 +229,9 @@ function createWindow() {
   })
 
   // Load the app
-  const isDev = process.env.NODE_ENV === 'development'
+  // Check if we're in development mode
+  // In dev mode, process.versions.electron is present but we should check for Vite dev server
+  const isDev = !app.isPackaged
   
   if (isDev) {
     // Try different ports that Vite might use

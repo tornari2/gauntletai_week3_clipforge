@@ -19,7 +19,8 @@ function App() {
       { id: 2, name: "Overlay", clips: [] }
     ],
     duration: 0,
-    playheadPosition: 0
+    playheadPosition: 0,
+    zoomLevel: 1.0
   })
 
   // Debug: Check if electronAPI is available
@@ -152,59 +153,38 @@ function App() {
   }
 
   const addClipToTimeline = (clip, trackId = 1) => {
-    console.log('App: Adding clip to timeline:', clip, 'track:', trackId)
-    
     setTimeline(prevTimeline => {
-      const newTimeline = { ...prevTimeline }
+      // Deep copy the timeline to avoid mutation
+      const newTimeline = {
+        ...prevTimeline,
+        tracks: prevTimeline.tracks.map(t => ({ ...t, clips: [...t.clips] }))
+      }
       const track = newTimeline.tracks.find(t => t.id === trackId)
       
       if (track) {
-        console.log('App: Current track clips before adding:', track.clips.map(c => ({ clipId: c.clipId, fileName: c.clip.fileName })))
-        
         // Check if this clip is already in the timeline to prevent duplicates
         const existingClip = track.clips.find(timelineClip => timelineClip.clipId === clip.id)
         if (existingClip) {
-          console.log('App: Clip already exists in timeline, skipping duplicate:', clip.id, 'existing:', existingClip)
-          console.log('App: All current clips in track:', track.clips.map(c => ({ clipId: c.clipId, fileName: c.clip.fileName })))
-          // Return the current newTimeline to preserve any duration changes that may have been made
-          return newTimeline
+          return prevTimeline // Return the ORIGINAL timeline unchanged
         }
-        
-        console.log('App: No existing clip found, proceeding to add:', clip.id)
-        
-        // Calculate start time (end of last clip in track)
-        const lastClip = track.clips[track.clips.length - 1]
-        const startTime = lastClip ? lastClip.startTime + lastClip.duration : 0
         
         // Create timeline clip
         const timelineClip = {
           clipId: clip.id,
-          startTime: startTime,
-          duration: clip.duration, // Use full video duration for timeline spacing
-          trimStart: clip.trimStart,
-          trimEnd: clip.trimEnd,
-          clip: clip // Reference to original clip
+          startTime: 0, // Will be repositioned
+          trimStart: clip.trimStart || 0,
+          trimEnd: clip.trimEnd || clip.duration,
+          clip: clip // Reference to original clip with FULL duration
         }
         
         // Add to track
         track.clips = [...track.clips, timelineClip]
         
-        // Update timeline duration - set to 2x video duration, rounded up to nearest minute
-        // Only set timeline duration if it's currently 0 (first clip)
-        if (newTimeline.duration === 0) {
-          const doubleDuration = clip.duration * 2
-          const minutes = Math.ceil(doubleDuration / 60)
-          newTimeline.duration = minutes * 60 // Round up to nearest minute
-          console.log('App: ===== TIMELINE DURATION CALCULATION =====')
-          console.log('App: Clip duration:', clip.duration)
-          console.log('App: Double duration:', doubleDuration)
-          console.log('App: Minutes (rounded up):', minutes)
-          console.log('App: Final timeline duration:', newTimeline.duration)
-          console.log('App: =========================================')
-        }
-        // Don't recalculate timeline duration for subsequent clips - keep it static
+        // Reposition all clips in track to be end-to-end using FULL durations
+        track.clips = repositionClipsInTrack(track.clips)
         
-        console.log('App: Updated timeline:', newTimeline)
+        // Recalculate timeline duration based on all clips
+        newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
       }
       
       return newTimeline
@@ -218,7 +198,6 @@ function App() {
         trimEnd: clip.trimEnd
       }
       setEditableClip(editableClipWithTimelineTrims)
-      console.log('App: Set editable clip for recording:', editableClipWithTimelineTrims)
     }
   }
 
@@ -275,19 +254,18 @@ function App() {
       const track = newTimeline.tracks.find(t => t.id === trackId)
       
       if (track) {
-        // Remove the clip from the track (by clipId only to ensure complete removal)
+        // Remove the clip from the track
         const beforeCount = track.clips.length
         track.clips = track.clips.filter(clip => clip.clipId !== timelineClip.clipId)
         const afterCount = track.clips.length
         
         console.log('App: Removed clip from timeline:', timelineClip.clipId, 'clips before:', beforeCount, 'clips after:', afterCount)
         
-        // Only reset timeline duration to 0 if no clips remain
-        // Don't recalculate timeline duration - keep it static
-        const hasAnyClips = newTimeline.tracks.some(track => track.clips.length > 0)
-        if (!hasAnyClips) {
-          newTimeline.duration = 0
-        }
+        // Reposition remaining clips in track
+        track.clips = repositionClipsInTrack(track.clips)
+        
+        // Recalculate timeline duration
+        newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
         
         console.log('App: Updated timeline after deletion:', newTimeline)
         console.log('App: Remaining clips in track:', track.clips.map(c => ({ clipId: c.clipId, fileName: c.clip.fileName })))
@@ -300,7 +278,7 @@ function App() {
   const handleTimelineClipTrim = (clipId, trimData) => {
     console.log('App: Trimming timeline clip:', clipId, 'with data:', trimData)
     
-    // Update the timeline clip
+    // Update the timeline clip - ONLY update trim values, do NOT reposition
     setTimeline(prevTimeline => {
       const newTimeline = { ...prevTimeline }
       
@@ -314,16 +292,14 @@ function App() {
             if (trimData.trimEnd !== undefined) {
               updatedClip.trimEnd = trimData.trimEnd
             }
-            // DO NOT update duration - keep it static to maintain timeline spacing
-            // Duration stays as the original video duration
+            // DO NOT update duration or startTime - clip maintains full size
             return updatedClip
           }
           return clip
         })
       })
       
-      // Don't recalculate timeline duration during trimming - keep it static
-      // Timeline duration should only change when clips are added/removed, not when trimmed
+      // DO NOT recalculate timeline duration - trimming doesn't change clip positions
       
       return newTimeline
     })
@@ -341,6 +317,188 @@ function App() {
     if (editableClip && editableClip.id === clipId) {
       setEditableClip(prev => ({ ...prev, ...trimData }))
     }
+  }
+
+  // Helper function to recalculate timeline duration based on FULL clip durations
+  const recalculateTimelineDuration = (tracks) => {
+    let maxEndTime = 0
+    tracks.forEach(track => {
+      track.clips.forEach(clip => {
+        // Use FULL original duration, not trimmed
+        const endTime = clip.startTime + clip.clip.duration
+        maxEndTime = Math.max(maxEndTime, endTime)
+      })
+    })
+    return maxEndTime
+  }
+
+  // Helper function to reposition clips in a track end-to-end using FULL durations
+  const repositionClipsInTrack = (clips) => {
+    let currentTime = 0
+    return clips.map(clip => {
+      const newClip = { ...clip, startTime: currentTime }
+      // Use FULL original duration for spacing
+      currentTime += clip.clip.duration
+      return newClip
+    })
+  }
+
+  // Playhead control
+  const handlePlayheadMove = (newPosition) => {
+    setTimeline(prev => ({
+      ...prev,
+      playheadPosition: Math.max(0, Math.min(newPosition, prev.duration))
+    }))
+  }
+
+  // Zoom controls
+  const handleZoomIn = () => {
+    setTimeline(prev => ({
+      ...prev,
+      zoomLevel: Math.min(prev.zoomLevel * 1.2, 4.0)
+    }))
+  }
+
+  const handleZoomOut = () => {
+    setTimeline(prev => ({
+      ...prev,
+      zoomLevel: Math.max(prev.zoomLevel / 1.2, 0.5)
+    }))
+  }
+
+  const handleZoomReset = () => {
+    setTimeline(prev => ({
+      ...prev,
+      zoomLevel: 1.0
+    }))
+  }
+
+  // Split clip at playhead position
+  const handleClipSplitAtPlayhead = () => {
+    const playheadTime = timeline.playheadPosition
+    
+    setTimeline(prevTimeline => {
+      const newTimeline = { ...prevTimeline }
+      
+      // Find clip under playhead in active region
+      for (const track of newTimeline.tracks) {
+        for (let i = 0; i < track.clips.length; i++) {
+          const clip = track.clips[i]
+          const activeStart = clip.startTime + clip.trimStart
+          const activeEnd = clip.startTime + clip.trimEnd
+          
+          // Only split if playhead is in ACTIVE region
+          if (playheadTime > activeStart && playheadTime < activeEnd) {
+            // Calculate split point in original video time
+            const splitTimeInOriginal = clip.trimStart + (playheadTime - clip.startTime)
+            
+            // Clip 1: Keep start, trim at split point
+            const clip1 = {
+              ...clip,
+              trimEnd: splitTimeInOriginal
+            }
+            
+            // Clip 2: Trim start to split point, keep end
+            const clip2 = {
+              ...clip,
+              clipId: Date.now() + 1,
+              trimStart: splitTimeInOriginal
+            }
+            
+            // Replace clip with two split clips
+            track.clips.splice(i, 1, clip1, clip2)
+            
+            // Reposition all clips in track
+            track.clips = repositionClipsInTrack(track.clips)
+            
+            // Recalculate timeline duration
+            newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
+            
+            console.log('App: Split clip at playhead:', playheadTime, 'original time:', splitTimeInOriginal)
+            return newTimeline
+          }
+        }
+      }
+      
+      console.log('App: No clip found at playhead position:', playheadTime)
+      return prevTimeline
+    })
+  }
+
+  // Split clip at center of active region
+  const handleClipSplitAtCenter = (trackId, clipId) => {
+    setTimeline(prevTimeline => {
+      const newTimeline = { ...prevTimeline }
+      const track = newTimeline.tracks.find(t => t.id === trackId)
+      
+      if (track) {
+        const clipIndex = track.clips.findIndex(c => c.clipId === clipId)
+        if (clipIndex >= 0) {
+          const clip = track.clips[clipIndex]
+          
+          // Calculate center of active region
+          const activeDuration = clip.trimEnd - clip.trimStart
+          const splitTimeInOriginal = clip.trimStart + (activeDuration / 2)
+          
+          // Clip 1: Keep start, trim at split point
+          const clip1 = {
+            ...clip,
+            trimEnd: splitTimeInOriginal
+          }
+          
+          // Clip 2: Trim start to split point, keep end
+          const clip2 = {
+            ...clip,
+            clipId: Date.now() + 1,
+            trimStart: splitTimeInOriginal
+          }
+          
+          // Replace clip with two split clips
+          track.clips.splice(clipIndex, 1, clip1, clip2)
+          
+          // Reposition all clips in track
+          track.clips = repositionClipsInTrack(track.clips)
+          
+          // Recalculate timeline duration
+          newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
+          
+          console.log('App: Split clip at center:', splitTimeInOriginal)
+        }
+      }
+      
+      return newTimeline
+    })
+  }
+
+  // Reposition clip to new track/index
+  const handleClipReposition = (clipId, sourceTrackId, targetTrackId, targetIndex) => {
+    setTimeline(prevTimeline => {
+      const newTimeline = { ...prevTimeline }
+      
+      const sourceTrack = newTimeline.tracks.find(t => t.id === sourceTrackId)
+      const targetTrack = newTimeline.tracks.find(t => t.id === targetTrackId)
+      
+      if (!sourceTrack || !targetTrack) return prevTimeline
+      
+      // Find and remove clip from source track
+      const clipIndex = sourceTrack.clips.findIndex(c => c.clipId === clipId)
+      if (clipIndex < 0) return prevTimeline
+      
+      const [clip] = sourceTrack.clips.splice(clipIndex, 1)
+      
+      // Insert into target track at specified index
+      targetTrack.clips.splice(targetIndex, 0, clip)
+      
+      // Reposition clips in both tracks
+      sourceTrack.clips = repositionClipsInTrack(sourceTrack.clips)
+      targetTrack.clips = repositionClipsInTrack(targetTrack.clips)
+      
+      // Recalculate timeline duration
+      newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
+      
+      console.log('App: Repositioned clip:', clipId, 'to track:', targetTrackId, 'index:', targetIndex)
+      return newTimeline
+    })
   }
 
   const handleRecordingComplete = async (recordingData) => {
@@ -465,6 +623,13 @@ function App() {
                 onClipDrop={handleClipDrop}
                 onTimelineClipDelete={handleTimelineClipDelete}
                 onClipTrim={handleTimelineClipTrim}
+                onClipReposition={handleClipReposition}
+                onClipSplitAtCenter={handleClipSplitAtCenter}
+                onClipSplitAtPlayhead={handleClipSplitAtPlayhead}
+                onPlayheadMove={handlePlayheadMove}
+                onZoomIn={handleZoomIn}
+                onZoomOut={handleZoomOut}
+                onZoomReset={handleZoomReset}
                 selectedClip={editableClip}
               />
             </div>

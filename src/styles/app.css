@@ -1203,42 +1203,151 @@ body {
   color: var(--text-primary);
 }
 
+.timeline-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 .timeline-duration {
   font-size: 12px;
   color: var(--text-secondary);
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
 }
 
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-zoom {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.btn-zoom:hover {
+  background-color: var(--bg-tertiary);
+  border-color: var(--accent-blue);
+}
+
+.zoom-level {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  min-width: 40px;
+  text-align: center;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.zoom-level:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.timeline-scroll-container {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-height: 300px;
+}
+
+.timeline-scroll-container::-webkit-scrollbar {
+  height: 8px;
+}
+
+.timeline-scroll-container::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+}
+
+.timeline-scroll-container::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.timeline-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
 .timeline-container {
   padding: 16px;
   position: relative;
+  min-height: 180px;
+  min-width: 100%;
+}
+
+/* Playhead Styles */
+.timeline-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.playhead-handle {
+  position: absolute;
+  top: 0;
+  left: -8px;
+  width: 18px;
+  height: 20px;
+  background-color: var(--accent-red);
+  border: 2px solid white;
+  border-radius: 3px 3px 0 0;
+  cursor: ew-resize;
+  pointer-events: all;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.playhead-handle:hover {
+  background-color: #ff5252;
+  transform: scale(1.1);
+}
+
+.playhead-line {
+  position: absolute;
+  top: 20px;
+  left: 0;
+  width: 2px;
+  height: calc(100% - 20px);
+  background-color: var(--accent-red);
+  box-shadow: 0 0 4px rgba(231, 76, 60, 0.5);
+}
+
+/* Snap Indicator */
+.timeline-snap-indicator {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: #ffd700;
+  box-shadow: 0 0 6px rgba(255, 215, 0, 0.8);
+  z-index: 90;
+  pointer-events: none;
 }
 
 /* Timeline Ruler Styles */
 .timeline-ruler {
-  margin-bottom: 8px;
+  position: relative;
+  height: 30px;
+  margin-bottom: 12px;
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 8px;
-}
-
-.ruler-track-labels {
-  display: flex;
-  align-items: center;
-}
-
-.ruler-spacer {
-  width: 80px;
-  margin-right: 12px;
-  flex-shrink: 0;
-}
-
-.ruler-content {
-  flex: 1;
-  position: relative;
-  height: 24px;
-  background-color: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
 }
 
 .ruler-mark {
@@ -1248,7 +1357,6 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  transform: translateX(-50%);
 }
 
 .ruler-tick {
@@ -1288,13 +1396,13 @@ body {
 
 .track-content {
   flex: 1;
-  height: 40px;
+  height: 60px;
   background-color: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
   position: relative;
-  overflow: hidden;
   transition: all 0.2s ease;
+  min-width: 0; /* Allow flex item to shrink */
 }
 
 .track-content.drag-over {
@@ -1315,51 +1423,147 @@ body {
   font-style: italic;
 }
 
+/* Timeline Clip Styles */
 .timeline-clip-bar {
   position: absolute;
-  top: 2px;
-  height: 36px;
-  background-color: var(--accent-blue);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 2px 6px;
-  overflow: visible;
-  transition: all 0.2s ease;
+  top: 4px;
+  height: 52px;
+  border-radius: 4px;
+  cursor: move;
+  overflow: hidden;
   user-select: none;
-}
-
-.timeline-clip-bar:hover {
-  background-color: #5ba0f2;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: opacity 0.2s ease;
 }
 
 .timeline-clip-bar.selected {
+  box-shadow: 0 0 0 2px var(--accent-green);
+  z-index: 10;
+}
+
+.timeline-clip-bar.dragging {
+  opacity: 0.6;
+  z-index: 50;
+}
+
+/* Trim Overlays */
+.trim-overlay {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background-color: rgba(128, 128, 128, 0.6);
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 10px,
+    rgba(0, 0, 0, 0.2) 10px,
+    rgba(0, 0, 0, 0.2) 20px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+.trim-overlay.trim-start {
+  left: 0;
+}
+
+.trim-overlay.trim-end {
+  right: 0;
+}
+
+/* Active Region */
+.clip-active-region {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background-color: var(--accent-blue);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.timeline-clip-bar:hover .clip-active-region {
+  background-color: #5ba0f2;
+}
+
+.timeline-clip-bar.selected .clip-active-region {
   background-color: var(--accent-green);
   border-color: rgba(255, 255, 255, 0.4);
 }
 
-/* Removed hover delete button - now using right-click context menu */
+/* Clip Content */
+.clip-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  pointer-events: none;
+  z-index: 3;
+}
 
-/* Editable indicator for timeline clips - removed pencil icon */
+.clip-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+  max-width: 100%;
+}
 
-/* Right-click context menu styling */
-.timeline-clip-context-menu {
+.clip-duration {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.9);
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+/* Trim Handles */
+.trim-handle {
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 100%;
+  cursor: ew-resize;
+  background-color: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  z-index: 5;
+  transition: all 0.15s ease;
+}
+
+.trim-handle:hover {
+  background-color: rgba(255, 255, 255, 0.9);
+  width: 10px;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
+}
+
+.trim-handle.trim-handle-left {
+  left: 0;
+  border-radius: 4px 0 0 4px;
+}
+
+.trim-handle.trim-handle-right {
+  right: 0;
+  border-radius: 0 4px 4px 0;
+}
+
+/* Context Menu */
+.timeline-context-menu {
   position: fixed;
   background-color: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   padding: 4px 0;
   z-index: 1000;
-  min-width: 120px;
+  min-width: 160px;
 }
 
-.timeline-clip-context-menu-item {
+.context-menu-item {
   padding: 8px 12px;
   font-size: 12px;
   color: var(--text-primary);
@@ -1367,118 +1571,22 @@ body {
   transition: background-color 0.2s ease;
 }
 
-.timeline-clip-context-menu-item:hover {
+.context-menu-item:hover {
   background-color: var(--bg-secondary);
 }
 
-.timeline-clip-context-menu-item.danger {
+.context-menu-item.danger {
   color: var(--accent-red);
 }
 
-.timeline-clip-context-menu-item.danger:hover {
+.context-menu-item.danger:hover {
   background-color: rgba(231, 76, 60, 0.1);
 }
 
-.clip-name {
-  font-size: 10px;
-  font-weight: 500;
-  color: white;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.2;
-}
-
-.clip-duration {
-  font-size: 9px;
-  color: rgba(255, 255, 255, 0.8);
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  line-height: 1;
-}
-
-.recording-indicator {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  font-size: 8px;
-  opacity: 0.9;
-}
-
-/* Resize handles for timeline clips */
-.timeline-clip-resize-handle {
-  position: absolute;
-  top: 0;
-  width: 12px;
-  height: 100%;
-  cursor: ew-resize;
-  background-color: rgba(255, 255, 255, 0.4);
-  opacity: 0;
-  transition: all 0.15s ease;
-  z-index: 15;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.timeline-clip-resize-handle:hover {
-  background-color: rgba(255, 255, 255, 0.8);
-  border-color: rgba(255, 255, 255, 0.6);
-  transform: scaleY(1.05);
-}
-
-/* Only show resize handles for selected clips, not on hover */
-.timeline-clip-bar.selected .timeline-clip-resize-handle.enabled {
-  opacity: 1;
-}
-
-.timeline-clip-resize-handle.left {
-  left: -6px;
-  border-radius: 3px 0 0 3px;
-}
-
-.timeline-clip-resize-handle.right {
-  right: -6px;
-  border-radius: 0 3px 3px 0;
-}
-
-/* Visual feedback during drag */
-.timeline-clip-bar.dragging {
-  opacity: 0.9;
-  transform: scale(1.03);
-  z-index: 20;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.timeline-clip-bar.dragging .timeline-clip-resize-handle {
-  opacity: 1;
-  background-color: rgba(255, 255, 255, 0.9);
-  border-color: rgba(255, 255, 255, 0.8);
-  transform: scaleY(1.1);
-}
-
-/* Disabled resize handles */
-.timeline-clip-resize-handle.disabled {
-  cursor: not-allowed;
-  background-color: rgba(128, 128, 128, 0.3);
-  border-color: rgba(128, 128, 128, 0.2);
-  opacity: 0.3;
-}
-
-.timeline-clip-resize-handle.disabled:hover {
-  background-color: rgba(128, 128, 128, 0.4);
-  border-color: rgba(128, 128, 128, 0.3);
-  transform: none;
-}
-
-/* Enabled resize handles */
-.timeline-clip-resize-handle.enabled {
-  cursor: ew-resize;
-  background-color: rgba(255, 255, 255, 0.4);
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
-.timeline-clip-resize-handle.enabled:hover {
-  background-color: rgba(255, 255, 255, 0.8);
-  border-color: rgba(255, 255, 255, 0.6);
-  transform: scaleY(1.05);
+.context-menu-divider {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 4px 0;
 }
 
 /* Timeline Section Layout */
