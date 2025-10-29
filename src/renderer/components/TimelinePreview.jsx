@@ -8,6 +8,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
   const [totalDuration, setTotalDuration] = useState(0)
   const [clips, setClips] = useState([])
   const shouldPlayRef = useRef(false) // Track if we should be playing during transitions
+  const animationFrameRef = useRef(null) // For throttling playhead updates
 
   // Get clips from main track and calculate timeline info
   useEffect(() => {
@@ -66,12 +67,26 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     }
   }, [currentClip, currentClipIndex])
 
-  // Sync playhead position with currentTime (separate effect to avoid loops)
+  // Sync playhead position with currentTime (throttled to avoid flickering)
   useEffect(() => {
-    if (onPlayheadMove && currentTime !== undefined) {
-      onPlayheadMove(currentTime)
+    if (!onPlayheadMove || currentTime === undefined) return
+    
+    // Cancel any pending animation frame
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current)
     }
-  }, [currentTime])
+    
+    // Schedule update on next animation frame
+    animationFrameRef.current = requestAnimationFrame(() => {
+      onPlayheadMove(currentTime)
+    })
+    
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current)
+      }
+    }
+  }, [currentTime, onPlayheadMove])
 
   // Handle video events
   useEffect(() => {
@@ -83,15 +98,6 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     
     const videoTime = video.currentTime
     const timeInClip = videoTime - currentClip.trimStart
-    
-    console.log('TimelinePreview: timeupdate event fired!', {
-      videoTime,
-      timeInClip,
-      videoPaused: video.paused,
-      videoReadyState: video.readyState,
-      currentClipIndex,
-      totalClips: clips.length
-    })
       
       // Check if we've exceeded the trim end point
       if (videoTime >= currentClip.trimEnd) {

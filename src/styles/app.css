@@ -737,7 +737,7 @@ body {
   border-radius: 50%;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
   cursor: pointer;
-  transition: left 0.1s ease;
+  will-change: left;
 }
 
 .video-seek-handle:hover {
@@ -1421,7 +1421,7 @@ body {
   width: 2px;
   z-index: 100;
   pointer-events: none;
-  transition: left 0.1s ease;
+  will-change: transform;
 }
 
 .playhead-handle {
