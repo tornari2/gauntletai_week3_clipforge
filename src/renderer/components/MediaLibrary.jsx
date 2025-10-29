@@ -25,14 +25,14 @@ const MediaLibrary = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideo
   React.useEffect(() => {
     if (window.electronAPI && window.electronAPI.onVideoDropped) {
       window.electronAPI.onVideoDropped((videoData) => {
-        console.log('Timeline: Received dropped video:', videoData)
+        console.log('MediaLibrary: Received dropped video from main process:', videoData)
         onVideoImported(videoData)
       })
     }
     
     if (window.electronAPI && window.electronAPI.onVideoDropError) {
       window.electronAPI.onVideoDropError((error) => {
-        console.error('Timeline: Video drop error:', error)
+        console.error('MediaLibrary: Video drop error:', error)
         alert(`Failed to import video: ${error}`)
       })
     }
@@ -49,7 +49,7 @@ const MediaLibrary = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideo
         <div className="timeline-empty">
           <div className="empty-icon">📁</div>
           <p>No media imported yet</p>
-          <p className="text-muted">Click the import button or drag & drop videos here</p>
+          <p className="text-muted">Click the import button to add videos</p>
         </div>
       ) : (
         <div className="timeline-container">

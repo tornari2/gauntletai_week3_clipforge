@@ -61,14 +61,15 @@ function App() {
       console.log('App: Updated clips:', updatedClips)
       return updatedClips
     })
-    setSelectedClip(newClip)
-    console.log('App: Set selected clip to:', newClip)
+    // Don't auto-select imported videos - they should only go to media library
+    console.log('App: Video imported to media library, no preview selected')
     console.log('=== APP COMPONENT DEBUG END ===')
   }
 
   const handleClipSelect = (clip) => {
-    // Only preview the clip, don't make it editable
-    setSelectedClip(clip)
+    // Don't preview clips from media library - only preview when dragged to timeline
+    // This function is kept for potential future functionality but doesn't set selectedClip
+    console.log('Media library clip clicked:', clip.fileName, '- no preview')
   }
 
   const handleTimelineClipSelect = (timelineClip) => {
@@ -99,16 +100,12 @@ function App() {
         track.clips = track.clips.filter(timelineClip => timelineClip.clipId !== clipId)
       })
       
-      // Recalculate timeline duration
-      let maxDuration = 0
-      newTimeline.tracks.forEach(track => {
-        if (track.clips.length > 0) {
-          const lastClip = track.clips[track.clips.length - 1]
-          const trackEndTime = lastClip.startTime + lastClip.duration
-          maxDuration = Math.max(maxDuration, trackEndTime)
-        }
-      })
-      newTimeline.duration = maxDuration
+      // Only reset timeline duration to 0 if no clips remain
+      // Don't recalculate timeline duration - keep it static
+      const hasAnyClips = newTimeline.tracks.some(track => track.clips.length > 0)
+      if (!hasAnyClips) {
+        newTimeline.duration = 0
+      }
       
       console.log('App: Updated timeline after media library deletion:', newTimeline)
       return newTimeline
@@ -169,7 +166,8 @@ function App() {
         if (existingClip) {
           console.log('App: Clip already exists in timeline, skipping duplicate:', clip.id, 'existing:', existingClip)
           console.log('App: All current clips in track:', track.clips.map(c => ({ clipId: c.clipId, fileName: c.clip.fileName })))
-          return prevTimeline
+          // Return the current newTimeline to preserve any duration changes that may have been made
+          return newTimeline
         }
         
         console.log('App: No existing clip found, proceeding to add:', clip.id)
@@ -182,7 +180,7 @@ function App() {
         const timelineClip = {
           clipId: clip.id,
           startTime: startTime,
-          duration: clip.trimEnd - clip.trimStart,
+          duration: clip.duration, // Use full video duration for timeline spacing
           trimStart: clip.trimStart,
           trimEnd: clip.trimEnd,
           clip: clip // Reference to original clip
@@ -191,15 +189,37 @@ function App() {
         // Add to track
         track.clips = [...track.clips, timelineClip]
         
-        // Update timeline duration
-        const trackEndTime = startTime + timelineClip.duration
-        newTimeline.duration = Math.max(newTimeline.duration, trackEndTime)
+        // Update timeline duration - set to 2x video duration, rounded up to nearest minute
+        // Only set timeline duration if it's currently 0 (first clip)
+        if (newTimeline.duration === 0) {
+          const doubleDuration = clip.duration * 2
+          const minutes = Math.ceil(doubleDuration / 60)
+          newTimeline.duration = minutes * 60 // Round up to nearest minute
+          console.log('App: ===== TIMELINE DURATION CALCULATION =====')
+          console.log('App: Clip duration:', clip.duration)
+          console.log('App: Double duration:', doubleDuration)
+          console.log('App: Minutes (rounded up):', minutes)
+          console.log('App: Final timeline duration:', newTimeline.duration)
+          console.log('App: =========================================')
+        }
+        // Don't recalculate timeline duration for subsequent clips - keep it static
         
         console.log('App: Updated timeline:', newTimeline)
       }
       
       return newTimeline
     })
+    
+    // If this is a recording being auto-added, also set it as editable
+    if (clip.isRecording) {
+      const editableClipWithTimelineTrims = {
+        ...clip,
+        trimStart: clip.trimStart,
+        trimEnd: clip.trimEnd
+      }
+      setEditableClip(editableClipWithTimelineTrims)
+      console.log('App: Set editable clip for recording:', editableClipWithTimelineTrims)
+    }
   }
 
   const handleClipDragStart = (clip) => {
@@ -210,18 +230,18 @@ function App() {
     const currentTime = Date.now()
     console.log('App: Clip dropped:', clip, 'on track:', trackId, 'at time:', currentTime)
     
-    // Prevent duplicate drops within 500ms
-    if (currentTime - lastDropTime < 500) {
+    // Prevent duplicate drops within 200ms (reduced from 500ms)
+    if (currentTime - lastDropTime < 200) {
       console.log('App: Ignoring duplicate drop - too soon after last drop')
       return
     }
     
     setLastDropTime(currentTime)
     
-    // Add a small delay to prevent rapid successive drops
-    setTimeout(() => {
-      addClipToTimeline(clip, trackId)
-    }, 100)
+    // Add to timeline and set as selected for preview
+    addClipToTimeline(clip, trackId)
+    setSelectedClip(clip)
+    console.log('App: Set selected clip for preview:', clip)
   }
 
   const handleTimelineClipDelete = (trackId, timelineClip) => {
@@ -231,6 +251,24 @@ function App() {
     if (editableClip && editableClip.id === timelineClip.clipId) {
       setEditableClip(null)
     }
+    
+    // If the deleted clip is currently being previewed, clear the preview
+    if (selectedClip && selectedClip.id === timelineClip.clipId) {
+      setSelectedClip(null)
+    }
+    
+    // Reset the trim values in the original clip to its original duration
+    setClips(prevClips => 
+      prevClips.map(clip => 
+        clip.id === timelineClip.clipId 
+          ? { 
+              ...clip, 
+              trimStart: 0, 
+              trimEnd: clip.duration // Reset to original duration
+            }
+          : clip
+      )
+    )
     
     setTimeline(prevTimeline => {
       const newTimeline = { ...prevTimeline }
@@ -244,11 +282,12 @@ function App() {
         
         console.log('App: Removed clip from timeline:', timelineClip.clipId, 'clips before:', beforeCount, 'clips after:', afterCount)
         
-        // Recalculate timeline duration
-        const maxEndTime = Math.max(...track.clips.map(clip => clip.startTime + clip.duration), 0)
-        newTimeline.duration = Math.max(...newTimeline.tracks.map(t => 
-          Math.max(...t.clips.map(clip => clip.startTime + clip.duration), 0)
-        ))
+        // Only reset timeline duration to 0 if no clips remain
+        // Don't recalculate timeline duration - keep it static
+        const hasAnyClips = newTimeline.tracks.some(track => track.clips.length > 0)
+        if (!hasAnyClips) {
+          newTimeline.duration = 0
+        }
         
         console.log('App: Updated timeline after deletion:', newTimeline)
         console.log('App: Remaining clips in track:', track.clips.map(c => ({ clipId: c.clipId, fileName: c.clip.fileName })))
@@ -275,13 +314,16 @@ function App() {
             if (trimData.trimEnd !== undefined) {
               updatedClip.trimEnd = trimData.trimEnd
             }
-            // Update duration based on trim
-            updatedClip.duration = updatedClip.trimEnd - updatedClip.trimStart
+            // DO NOT update duration - keep it static to maintain timeline spacing
+            // Duration stays as the original video duration
             return updatedClip
           }
           return clip
         })
       })
+      
+      // Don't recalculate timeline duration during trimming - keep it static
+      // Timeline duration should only change when clips are added/removed, not when trimmed
       
       return newTimeline
     })
@@ -315,18 +357,37 @@ function App() {
       if (result.success) {
         console.log('App: Recording saved to:', result.filePath)
         
-        // Get video metadata
-        const metadata = await window.electronAPI.getVideoMetadata(result.filePath)
+        // Get video metadata with fallback duration
+        const metadata = await window.electronAPI.getVideoMetadata(result.filePath, recordingData.duration)
         console.log('App: Recording metadata:', metadata)
         
-        // Generate thumbnail
+        // Generate thumbnail with error handling
         const thumbnailPath = result.filePath.replace(/\.[^/.]+$/, '_thumb.jpg')
-        const generatedThumbnail = await window.electronAPI.generateThumbnail(result.filePath, thumbnailPath)
-        console.log('App: Thumbnail generated:', generatedThumbnail)
+        let generatedThumbnail = null
+        try {
+          generatedThumbnail = await window.electronAPI.generateThumbnail(result.filePath, thumbnailPath)
+          console.log('App: Thumbnail generated:', generatedThumbnail)
+        } catch (thumbnailError) {
+          console.error('App: Thumbnail generation failed:', thumbnailError)
+          // Continue without thumbnail - the app will handle missing thumbnails gracefully
+          generatedThumbnail = null
+        }
         
         // Create clip object (same structure as imported videos)
         // Handle WebM files that might have duration issues
-        const duration = metadata.duration && metadata.duration !== 'N/A' ? Math.round(metadata.duration) : 0
+        // Use the actual recording time as the primary duration source
+        let duration = recordingData.duration || 0
+        
+        // Try to get duration from metadata as fallback, but prefer recording time
+        if (metadata.duration && metadata.duration !== 'N/A' && !isNaN(metadata.duration)) {
+          const metadataDuration = Math.round(metadata.duration)
+          // Only use metadata duration if it's reasonable (within 10% of recording time)
+          if (Math.abs(metadataDuration - duration) <= Math.max(duration * 0.1, 1)) {
+            duration = metadataDuration
+          }
+        }
+        
+        console.log('App: Duration calculation - Recording time:', recordingData.duration, 'Metadata duration:', metadata.duration, 'Final duration:', duration)
         
         const newClip = {
           id: Date.now(),
@@ -353,11 +414,15 @@ function App() {
           return updatedClips
         })
         
+        // Automatically add recording to timeline (Main track)
+        addClipToTimeline(newClip, 1)
+        console.log('App: Recording automatically added to timeline')
+        
         // Select the new recording for preview
         setSelectedClip(newClip)
         
         // Show success message
-        alert(`Recording saved to media library: ${fileName}`)
+        alert(`Recording saved and added to timeline: ${fileName}`)
       } else {
         throw new Error(result.error || 'Failed to save recording')
       }

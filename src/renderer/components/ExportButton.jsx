@@ -4,6 +4,41 @@ const ExportButton = ({ selectedClip }) => {
   const [isExporting, setIsExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState(0)
   const [exportStatus, setExportStatus] = useState('')
+  const [selectedResolution, setSelectedResolution] = useState('original')
+
+  // Resolution options with file size estimates
+  const resolutionOptions = [
+    { 
+      value: 'original', 
+      label: 'Original Resolution', 
+      bitrate: null // Will use original bitrate
+    },
+    { 
+      value: '4K', 
+      label: '4K (3840×2160)', 
+      bitrate: 15000 // 15 Mbps
+    },
+    { 
+      value: '1080p', 
+      label: '1080p (1920×1080)', 
+      bitrate: 5000 // 5 Mbps
+    },
+    { 
+      value: '720p', 
+      label: '720p (1280×720)', 
+      bitrate: 2500 // 2.5 Mbps
+    },
+    { 
+      value: '480p', 
+      label: '480p (854×480)', 
+      bitrate: 1000 // 1 Mbps
+    },
+    { 
+      value: '360p', 
+      label: '360p (640×360)', 
+      bitrate: 500 // 0.5 Mbps
+    }
+  ]
 
   useEffect(() => {
     // Set up event listeners for export progress
@@ -63,7 +98,8 @@ const ExportButton = ({ selectedClip }) => {
         inputPath: selectedClip.filePath,
         outputPath,
         startTime,
-        duration
+        duration,
+        resolution: selectedResolution
       })
 
     } catch (error) {
@@ -79,6 +115,31 @@ const ExportButton = ({ selectedClip }) => {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
     return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+  }
+
+  const calculateExpectedFileSize = (duration, resolution) => {
+    if (!selectedClip || resolution === 'original') {
+      return 'Original size'
+    }
+    
+    const selectedOption = resolutionOptions.find(opt => opt.value === resolution)
+    if (!selectedOption || !selectedOption.bitrate) {
+      return 'Unknown'
+    }
+    
+    // Calculate file size: (bitrate in bps * duration in seconds) / 8 bits per byte
+    const bitrateBps = selectedOption.bitrate * 1000 // Convert kbps to bps
+    const fileSizeBytes = (bitrateBps * duration) / 8
+    
+    return `~${formatFileSize(fileSizeBytes)}`
   }
 
   if (!selectedClip) {
@@ -101,6 +162,32 @@ const ExportButton = ({ selectedClip }) => {
       <p className="text-muted">
         Duration: {formatTime(trimDuration)} (from {formatTime(selectedClip.trimStart)} to {formatTime(selectedClip.trimEnd)})
       </p>
+
+      <div className="export-options">
+        <label htmlFor="resolution-select" className="export-label">
+          Export Resolution:
+        </label>
+        <select
+          id="resolution-select"
+          value={selectedResolution}
+          onChange={(e) => setSelectedResolution(e.target.value)}
+          className="export-select"
+          disabled={isExporting}
+        >
+          {resolutionOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        
+        <div className="file-size-estimate">
+          <span className="file-size-label">Expected file size:</span>
+          <span className="file-size-value">
+            {calculateExpectedFileSize(trimDuration, selectedResolution)}
+          </span>
+        </div>
+      </div>
 
       <button 
         className="btn btn-success"

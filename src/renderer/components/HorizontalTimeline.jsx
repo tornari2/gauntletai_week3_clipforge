@@ -15,23 +15,28 @@ const HorizontalTimeline = ({ timeline, onClipSelect, onClipDelete, onClipDrop, 
 
   const getClipStyle = (timelineClip, currentTrimStart = null, currentTrimEnd = null) => {
     // Calculate position and width based on trim values and timeline duration
-    const timelineDuration = Math.max(timeline.duration, 10)
+    const timelineDuration = timeline.duration > 0 ? timeline.duration : 10 // Use actual timeline duration
     
     // Use current trim values if provided (during dragging), otherwise use stored values
     const trimStart = currentTrimStart !== null ? currentTrimStart : timelineClip.trimStart
     const trimEnd = currentTrimEnd !== null ? currentTrimEnd : timelineClip.trimEnd
-    const clipDuration = trimEnd - trimStart
     
     // Calculate the visual position and width
-    // When trimming from the left, we need to move the clip's visual start position
-    // The trim offset is how much we've trimmed from the original start
-    const originalTrimStart = timelineClip.clip.trimStart || 0
-    const trimOffset = trimStart - originalTrimStart
+    // The clip stays at its timeline position (startTime)
+    // The width is based on the full video duration (not trimmed)
+    // Trimming is handled visually through CSS or other means, not by changing position/width
+    const startPercentage = (timelineClip.startTime / timelineDuration) * 100
+    const widthPercentage = (timelineClip.duration / timelineDuration) * 100
     
-    // The visual start time is the timeline position plus the trim offset
-    const visualStartTime = timelineClip.startTime + trimOffset
-    const startPercentage = (visualStartTime / timelineDuration) * 100
-    const widthPercentage = (clipDuration / timelineDuration) * 100
+    console.log('Timeline Debug:', {
+      timelineDuration,
+      clipStartTime: timelineClip.startTime,
+      clipDuration: timelineClip.duration,
+      trimStart,
+      trimEnd,
+      startPercentage,
+      widthPercentage
+    })
     
     return {
       left: `${startPercentage}%`,
@@ -77,7 +82,7 @@ const HorizontalTimeline = ({ timeline, onClipSelect, onClipDelete, onClipDrop, 
     animationFrameRef.current = requestAnimationFrame(() => {
       const deltaX = e.clientX - dragData.startX
       const trackWidth = trackRef.current?.offsetWidth || 1
-      const timelineDuration = Math.max(timeline.duration, 10)
+      const timelineDuration = timeline.duration || 10
       
       // Improved pixel-to-time conversion with better sensitivity
       const pixelsPerSecond = trackWidth / timelineDuration
@@ -181,7 +186,7 @@ const HorizontalTimeline = ({ timeline, onClipSelect, onClipDelete, onClipDrop, 
       <div className="timeline-header">
         <h3>Timeline</h3>
         <div className="timeline-duration">
-          Duration: {formatTime(timeline.duration)}
+          Duration: {formatTime(timeline.duration)} (Debug: {timeline.duration}s)
         </div>
       </div>
       
@@ -197,22 +202,34 @@ const HorizontalTimeline = ({ timeline, onClipSelect, onClipDelete, onClipDrop, 
                 <div className="ruler-spacer"></div>
                 <div className="ruler-content">
                   {(() => {
-                    const maxDuration = Math.max(timeline.duration, 10) // Minimum 10 seconds
+                    console.log('Ruler: Received timeline object:', timeline)
+                    console.log('Ruler: timeline.duration value:', timeline.duration)
+                    console.log('Ruler: timeline.duration type:', typeof timeline.duration)
+                    
+                    const maxDuration = timeline.duration > 0 ? timeline.duration : 10 // Use actual timeline duration
                     const rulerMarks = []
-                    const markInterval = maxDuration <= 30 ? 5 : maxDuration <= 120 ? 10 : 30 // 5s, 10s, or 30s intervals
+                    
+                    // For 11-minute timeline (660 seconds), show marks every 30 seconds
+                    // This will give us 22 marks total (0:00, 0:30, 1:00, 1:30, ... 10:30, 11:00)
+                    const markInterval = 30 // Every 30 seconds for better visibility
+                    
+                    console.log('Ruler: maxDuration =', maxDuration, 'markInterval =', markInterval)
                     
                     for (let i = 0; i <= maxDuration; i += markInterval) {
+                      const position = (i / maxDuration) * 100
+                      console.log(`Ruler mark at ${i}s -> ${position}%`)
                       rulerMarks.push(
                         <div 
                           key={i} 
                           className="ruler-mark"
-                          style={{ left: `${(i / maxDuration) * 100}%` }}
+                          style={{ left: `${position}%` }}
                         >
                           <div className="ruler-tick"></div>
                           <div className="ruler-label">{formatTime(i)}</div>
                         </div>
                       )
                     }
+                    console.log('Ruler: Total marks generated:', rulerMarks.length)
                     return rulerMarks
                   })()}
                 </div>

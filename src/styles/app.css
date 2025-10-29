@@ -804,6 +804,67 @@ body {
   font-size: 18px;
 }
 
+.export-options {
+  margin: 16px 0;
+  padding: 16px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--border-color);
+}
+
+.export-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.export-select {
+  width: 100%;
+  padding: 8px 12px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.export-select:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+.export-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.file-size-estimate {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background-color: var(--bg-tertiary);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.file-size-label {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.file-size-value {
+  font-size: 14px;
+  color: var(--accent-blue);
+  font-weight: 600;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
 .export-progress {
   margin-top: 16px;
 }

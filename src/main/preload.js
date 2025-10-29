@@ -8,11 +8,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Video metadata
   getVideoDuration: (filePath) => ipcRenderer.invoke('get-video-duration', filePath),
-  getVideoMetadata: (filePath) => ipcRenderer.invoke('get-video-metadata', filePath),
+  getVideoMetadata: (filePath, fallbackDuration) => ipcRenderer.invoke('get-video-metadata', filePath, fallbackDuration),
   generateThumbnail: (filePath, outputPath) => ipcRenderer.invoke('generate-thumbnail', filePath, outputPath),
   
-  // Process dropped files
-  processDroppedFile: (fileName, filePath) => ipcRenderer.invoke('process-dropped-file', { fileName, filePath }),
+  // Removed processDroppedFile - drag & drop is disabled
   
   
   // Listen for dropped video events

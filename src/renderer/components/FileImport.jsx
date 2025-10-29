@@ -94,7 +94,7 @@ const FileImport = ({ onVideoImported }) => {
     const files = Array.from(e.dataTransfer.files)
     const videoFile = files.find(file => 
       file.type.startsWith('video/') && 
-      (file.name.endsWith('.mp4') || file.name.endsWith('.mov'))
+      (file.name.endsWith('.mp4') || file.name.endsWith('.mov') || file.name.endsWith('.webm'))
     )
     
     if (videoFile) {
@@ -128,7 +128,7 @@ const FileImport = ({ onVideoImported }) => {
         setIsImporting(false)
       }
     } else {
-      alert('Please drop a valid video file (MP4 or MOV)')
+      alert('Please drop a valid video file (MP4, MOV, or WebM)')
     }
   }
 
@@ -138,7 +138,7 @@ const FileImport = ({ onVideoImported }) => {
         className="btn btn-primary"
         onClick={handleFileSelect}
         disabled={isImporting}
-        title="Import video file (MP4 or MOV)"
+        title="Import video file (MP4, MOV, or WebM)"
       >
         {isImporting ? 'Importing...' : '📹 Import Video'}
       </button>

@@ -25,7 +25,7 @@ const TrimControls = ({ selectedClip, onTrimUpdate }) => {
         return minutes * 60 + seconds
       }
     }
-    // Round to whole seconds
+    // Always round to whole seconds (1-second increments)
     return Math.round(parseFloat(input) || 0)
   }
 
@@ -95,7 +95,7 @@ const TrimControls = ({ selectedClip, onTrimUpdate }) => {
   const getTimeFromPosition = (percentage) => {
     if (!selectedClip) return 0
     const time = (percentage / 100) * selectedClip.duration
-    // Snap to whole seconds
+    // Always snap to whole seconds (1-second increments)
     return Math.round(time)
   }
 
@@ -110,17 +110,17 @@ const TrimControls = ({ selectedClip, onTrimUpdate }) => {
     const rect = sliderRef.current.getBoundingClientRect()
     const x = e.clientX - rect.left
     const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100))
-    const newTime = getTimeFromPosition(percentage)
+    const newTime = getTimeFromPosition(percentage) // Already rounds to whole seconds
 
     if (isDragging === 'start') {
       const end = parseTimeInput(endTime)
       if (newTime < end) {
-        setStartTime(Math.round(newTime).toString())
+        setStartTime(newTime.toString())
       }
     } else if (isDragging === 'end') {
       const start = parseTimeInput(startTime)
       if (newTime > start) {
-        setEndTime(Math.round(newTime).toString())
+        setEndTime(newTime.toString())
       }
     }
   }
@@ -187,18 +187,18 @@ const TrimControls = ({ selectedClip, onTrimUpdate }) => {
             const rect = e.currentTarget.getBoundingClientRect()
             const x = e.clientX - rect.left
             const percentage = (x / rect.width) * 100
-            const clickTime = getTimeFromPosition(percentage)
+            const clickTime = getTimeFromPosition(percentage) // Already rounds to whole seconds
             const start = parseTimeInput(startTime)
             const end = parseTimeInput(endTime)
             
             // Move the closest handle, ensuring we snap to whole seconds
             if (Math.abs(clickTime - start) < Math.abs(clickTime - end)) {
               if (clickTime < end) {
-                setStartTime(Math.round(clickTime).toString())
+                setStartTime(clickTime.toString())
               }
             } else {
               if (clickTime > start) {
-                setEndTime(Math.round(clickTime).toString())
+                setEndTime(clickTime.toString())
               }
             }
           }}

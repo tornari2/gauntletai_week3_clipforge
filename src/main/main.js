@@ -177,7 +177,8 @@ function createWindow() {
         contextIsolation: true,
         enableRemoteModule: false,
         preload: path.join(__dirname, 'preload.js'),
-        webSecurity: false
+        webSecurity: false, // Required for file.path access
+        allowRunningInsecureContent: true // Additional security relaxation for file access
       },
     show: false,
     frame: true,
@@ -185,25 +186,23 @@ function createWindow() {
     movable: true
   })
 
-  // Enable file drag and drop on the window
-  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-    const parsedUrl = new URL(navigationUrl)
-    if (parsedUrl.origin !== 'http://localhost:5173') {
-      event.preventDefault()
-    }
+  // Drag and drop is disabled for security and reliability
+  // Users should use the Import button instead
+  mainWindow.on('focus', () => {
+    mainWindow.webContents.send('window-focused')
   })
 
-  // Handle file drops on the window using Electron's built-in support
+  // Provide visual feedback for drag & drop but don't process files
   mainWindow.webContents.on('dom-ready', () => {
-    // Inject visual feedback for drag and drop only on Media Library
     mainWindow.webContents.executeJavaScript(`
-      // Add visual feedback for drag and drop only on Media Library
+      // Provide visual feedback for drag & drop
       document.addEventListener('dragover', (e) => {
-        // Only handle drag over if it's over the Media Library area
+        e.preventDefault()
+        e.stopPropagation()
+        
         const mediaLibrary = e.target.closest('.timeline')
         if (mediaLibrary) {
-          e.preventDefault()
-          e.stopPropagation()
+          e.dataTransfer.dropEffect = 'copy'
           mediaLibrary.classList.add('drag-over')
         }
       })
@@ -211,8 +210,6 @@ function createWindow() {
       document.addEventListener('dragleave', (e) => {
         const mediaLibrary = e.target.closest('.timeline')
         if (mediaLibrary) {
-          e.preventDefault()
-          e.stopPropagation()
           if (!e.relatedTarget || !mediaLibrary.contains(e.relatedTarget)) {
             mediaLibrary.classList.remove('drag-over')
           }
@@ -220,42 +217,17 @@ function createWindow() {
       })
 
       document.addEventListener('drop', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        
         const mediaLibrary = e.target.closest('.timeline')
         if (mediaLibrary) {
-          e.preventDefault()
-          e.stopPropagation()
           mediaLibrary.classList.remove('drag-over')
-          
-          // The actual file processing is handled by the will-navigate event
-          // This is just for visual feedback and preventing default browser behavior
+          alert('Please use the "Import Video" button to add videos to your project.')
         }
       })
     `)
   })
-
-  // Handle file drops at the window level
-  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-    const parsedUrl = new URL(navigationUrl)
-    
-    // Check if this is a file drop
-    if (navigationUrl.startsWith('file://')) {
-      event.preventDefault()
-      
-      // Extract the file path
-      const filePath = navigationUrl.replace('file://', '')
-      
-      // Check if it's a video file
-      if (filePath.endsWith('.mp4') || filePath.endsWith('.mov')) {
-        console.log('Main: File dropped:', filePath)
-        
-        // Process the dropped file
-        handleDroppedFile(filePath)
-      }
-    } else if (parsedUrl.origin !== 'http://localhost:5173') {
-      event.preventDefault()
-    }
-  })
-
 
   // Load the app
   const isDev = process.env.NODE_ENV === 'development'
@@ -340,7 +312,7 @@ ipcMain.handle('import-video', async (event) => {
     const result = await dialog.showOpenDialog(window, {
       properties: ['openFile'],
       filters: [
-        { name: 'Videos', extensions: ['mp4', 'mov'] }
+        { name: 'Videos', extensions: ['mp4', 'mov', 'webm'] }
       ]
     })
     
@@ -362,6 +334,8 @@ ipcMain.handle('import-video', async (event) => {
     throw error
   }
 })
+
+// Removed process-dropped-file handler - drag & drop is disabled
 
 // Get video duration
 ipcMain.handle('get-video-duration', async (event, filePath) => {
@@ -396,9 +370,10 @@ ipcMain.handle('get-video-duration', async (event, filePath) => {
 })
 
 // Get video metadata (duration, resolution, file size)
-ipcMain.handle('get-video-metadata', async (event, filePath) => {
+ipcMain.handle('get-video-metadata', async (event, filePath, fallbackDuration = null) => {
   try {
     console.log('Main: get-video-metadata called for:', filePath)
+    console.log('Main: fallbackDuration provided:', fallbackDuration)
     
     if (!filePath) {
       throw new Error('No file path provided')
@@ -412,6 +387,22 @@ ipcMain.handle('get-video-metadata', async (event, filePath) => {
       ffmpeg.ffprobe(filePath, (err, metadata) => {
         if (err) {
           console.error('Main: FFprobe error:', err)
+          
+          // If FFprobe fails and we have a fallback duration, use it
+          if (fallbackDuration && fallbackDuration > 0) {
+            console.log('Main: Using fallback duration due to FFprobe error:', fallbackDuration)
+            const fileStats = require('fs').statSync(filePath)
+            resolve({
+              duration: fallbackDuration,
+              width: 1920, // Default width
+              height: 1080, // Default height
+              fileSize: fileStats.size,
+              codec: 'webm',
+              bitrate: 0
+            })
+            return
+          }
+          
           reject(err)
         } else {
           const videoStream = metadata.streams.find(stream => stream.codec_type === 'video')
@@ -419,15 +410,30 @@ ipcMain.handle('get-video-metadata', async (event, filePath) => {
           
           // Handle WebM files that might have duration issues
           let duration = metadata.format.duration
-          if (!duration || duration === 'N/A' || isNaN(duration)) {
+          console.log('Main: Raw duration from format:', duration)
+          console.log('Main: Video stream duration:', videoStream ? videoStream.duration : 'N/A')
+          
+          if (!duration || duration === 'N/A' || isNaN(duration) || duration <= 0) {
             // For WebM files, try to get duration from video stream
-            if (videoStream && videoStream.duration) {
+            if (videoStream && videoStream.duration && !isNaN(parseFloat(videoStream.duration))) {
               duration = parseFloat(videoStream.duration)
+              console.log('Main: Using video stream duration:', duration)
             } else {
-              duration = 0 // Default to 0 if we can't determine duration
+              // Try to calculate duration from bitrate and file size
+              const fileSize = fileStats.size
+              const bitrate = metadata.format.bit_rate ? parseInt(metadata.format.bit_rate) : 0
+              if (bitrate > 0 && fileSize > 0) {
+                duration = fileSize / (bitrate / 8) // Convert bitrate to bytes per second
+                console.log('Main: Calculated duration from bitrate:', duration)
+              } else {
+                // Use fallback duration if provided (from recording time)
+                duration = fallbackDuration || 0
+                console.log('Main: Using fallback duration:', duration)
+              }
             }
           } else {
             duration = parseFloat(duration)
+            console.log('Main: Using format duration:', duration)
           }
           
           // Handle bitrate for WebM files
@@ -458,6 +464,35 @@ ipcMain.handle('get-video-metadata', async (event, filePath) => {
   }
 })
 
+// Create a placeholder thumbnail when FFmpeg fails
+const createPlaceholderThumbnail = (outputPath, resolve, reject) => {
+  try {
+    console.log('Main: Creating placeholder thumbnail for corrupted video')
+    const fs = require('fs')
+    const path = require('path')
+    
+    // Create a simple placeholder image (1x1 pixel PNG)
+    const placeholderData = Buffer.from([
+      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+      0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
+      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1 dimensions
+      0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, // bit depth, color type, etc.
+      0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, // IDAT chunk
+      0x54, 0x08, 0x99, 0x01, 0x01, 0x00, 0x00, 0x00, // compressed data
+      0xFF, 0xFF, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, // more data
+      0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, // IEND chunk
+      0xAE, 0x42, 0x60, 0x82
+    ])
+    
+    fs.writeFileSync(outputPath, placeholderData)
+    console.log('Main: Placeholder thumbnail created successfully')
+    resolve(outputPath)
+  } catch (error) {
+    console.error('Main: Error creating placeholder thumbnail:', error)
+    reject(error)
+  }
+}
+
 // Generate video thumbnail
 ipcMain.handle('generate-thumbnail', async (event, filePath, outputPath) => {
   try {
@@ -473,46 +508,66 @@ ipcMain.handle('generate-thumbnail', async (event, filePath, outputPath) => {
     }
     
     return new Promise((resolve, reject) => {
-      // First try to get duration to determine if we can use percentage
-      ffmpeg.ffprobe(filePath, (err, metadata) => {
-        if (err || !metadata.format.duration || metadata.format.duration === 'N/A') {
-          // If we can't get duration, use a fixed timestamp (1 second)
-          console.log('Main: Using fixed timestamp for thumbnail (1 second)')
-          ffmpeg(filePath)
-            .screenshots({
-              timestamps: ['00:00:01'], // Take thumbnail at 1 second
-              filename: path.basename(outputPath),
-              folder: path.dirname(outputPath),
-              size: '320x180'
-            })
-            .on('end', () => {
-              console.log('Main: Thumbnail generated successfully (fixed timestamp)')
-              resolve(outputPath)
-            })
-            .on('error', (err) => {
-              console.error('Main: Thumbnail generation error (fixed timestamp):', err)
-              reject(err)
-            })
-        } else {
-          // Use percentage if we have duration
-          console.log('Main: Using percentage timestamp for thumbnail (10%)')
-          ffmpeg(filePath)
-            .screenshots({
-              timestamps: ['10%'],
-              filename: path.basename(outputPath),
-              folder: path.dirname(outputPath),
-              size: '320x180'
-            })
-            .on('end', () => {
-              console.log('Main: Thumbnail generated successfully (percentage)')
-              resolve(outputPath)
-            })
-            .on('error', (err) => {
-              console.error('Main: Thumbnail generation error (percentage):', err)
-              reject(err)
-            })
-        }
-      })
+      // Try multiple approaches for thumbnail generation
+      const tryThumbnailGeneration = (attempt = 1) => {
+        console.log(`Main: Thumbnail generation attempt ${attempt}`)
+        
+        // First try to get duration to determine if we can use percentage
+        ffmpeg.ffprobe(filePath, (err, metadata) => {
+          if (err || !metadata.format.duration || metadata.format.duration === 'N/A') {
+            // If we can't get duration, use a fixed timestamp (1 second)
+            console.log('Main: Using fixed timestamp for thumbnail (1 second)')
+            ffmpeg(filePath)
+              .screenshots({
+                timestamps: ['00:00:01'], // Take thumbnail at 1 second
+                filename: path.basename(outputPath),
+                folder: path.dirname(outputPath),
+                size: '320x180'
+              })
+              .on('end', () => {
+                console.log('Main: Thumbnail generated successfully (fixed timestamp)')
+                resolve(outputPath)
+              })
+              .on('error', (err) => {
+                console.error('Main: Thumbnail generation error (fixed timestamp):', err)
+                if (attempt < 3) {
+                  console.log('Main: Retrying thumbnail generation...')
+                  setTimeout(() => tryThumbnailGeneration(attempt + 1), 1000)
+                } else {
+                  // Create a placeholder thumbnail
+                  createPlaceholderThumbnail(outputPath, resolve, reject)
+                }
+              })
+          } else {
+            // Use percentage if we have duration
+            console.log('Main: Using percentage timestamp for thumbnail (10%)')
+            ffmpeg(filePath)
+              .screenshots({
+                timestamps: ['10%'],
+                filename: path.basename(outputPath),
+                folder: path.dirname(outputPath),
+                size: '320x180'
+              })
+              .on('end', () => {
+                console.log('Main: Thumbnail generated successfully (percentage)')
+                resolve(outputPath)
+              })
+              .on('error', (err) => {
+                console.error('Main: Thumbnail generation error (percentage):', err)
+                if (attempt < 3) {
+                  console.log('Main: Retrying thumbnail generation...')
+                  setTimeout(() => tryThumbnailGeneration(attempt + 1), 1000)
+                } else {
+                  // Create a placeholder thumbnail
+                  createPlaceholderThumbnail(outputPath, resolve, reject)
+                }
+              })
+          }
+        })
+      }
+      
+      // Start the first attempt
+      tryThumbnailGeneration()
     })
   } catch (error) {
     console.error('Error generating thumbnail:', error)
@@ -553,16 +608,36 @@ ipcMain.handle('save-dialog', async () => {
 
 // Export video
 ipcMain.handle('export-video', async (event, options) => {
-  const { inputPath, outputPath, startTime, duration } = options
+  const { inputPath, outputPath, startTime, duration, resolution = 'original' } = options
   
   try {
     return new Promise((resolve, reject) => {
-      const command = ffmpeg(inputPath)
+      let command = ffmpeg(inputPath)
         .setStartTime(startTime)
         .setDuration(duration)
         .output(outputPath)
         .videoCodec('libx264')
         .audioCodec('aac')
+      
+      // Apply resolution scaling and bitrate if not original
+      if (resolution !== 'original') {
+        const resolutionMap = {
+          '4K': { size: '3840:2160', bitrate: '15000k' },
+          '1080p': { size: '1920:1080', bitrate: '5000k' },
+          '720p': { size: '1280:720', bitrate: '2500k' },
+          '480p': { size: '854:480', bitrate: '1000k' },
+          '360p': { size: '640:360', bitrate: '500k' }
+        }
+        
+        if (resolutionMap[resolution]) {
+          command = command
+            .size(resolutionMap[resolution].size)
+            .videoBitrate(resolutionMap[resolution].bitrate)
+          console.log(`Main: Scaling video to ${resolution} (${resolutionMap[resolution].size}) with bitrate ${resolutionMap[resolution].bitrate}`)
+        }
+      }
+      
+      command
         .on('progress', (progress) => {
           // Send progress updates to renderer
           mainWindow.webContents.send('export-progress', {

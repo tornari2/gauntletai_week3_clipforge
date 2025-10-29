@@ -129,7 +129,7 @@ const VideoPlayer = ({ selectedClip }) => {
         <div className="video-player-empty">
           <div className="empty-icon">📺</div>
           <h3>No Video Selected</h3>
-          <p className="text-muted">Select a clip from the timeline to preview</p>
+          <p className="text-muted">Drag a clip from the media library to the timeline to preview</p>
         </div>
       </div>
     )
