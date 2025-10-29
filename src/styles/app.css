@@ -1354,7 +1354,8 @@ body {
   transform: scaleY(1.05);
 }
 
-.timeline-clip-bar:hover .timeline-clip-resize-handle {
+/* Only show resize handles for selected clips, not on hover */
+.timeline-clip-bar.selected .timeline-clip-resize-handle.enabled {
   opacity: 1;
 }
 

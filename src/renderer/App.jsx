@@ -71,10 +71,17 @@ function App() {
     setSelectedClip(clip)
   }
 
-  const handleTimelineClipSelect = (clip) => {
+  const handleTimelineClipSelect = (timelineClip) => {
     // Timeline clips can be both previewed and edited
-    setSelectedClip(clip)
-    setEditableClip(clip)
+    // Create a modified clip with the timeline's current trim values
+    const editableClipWithTimelineTrims = {
+      ...timelineClip.clip,
+      trimStart: timelineClip.trimStart,
+      trimEnd: timelineClip.trimEnd
+    }
+    
+    setSelectedClip(timelineClip.clip)
+    setEditableClip(editableClipWithTimelineTrims)
   }
 
   const handleClipDelete = (clipId) => {
@@ -142,6 +149,9 @@ function App() {
     if (editableClip && editableClip.id === clipId) {
       setEditableClip(prev => ({ ...prev, ...trimData }))
     }
+    
+    // Also update the timeline clip if this is a timeline clip
+    handleTimelineClipTrim(clipId, trimData)
   }
 
   const addClipToTimeline = (clip, trackId = 1) => {

@@ -22,7 +22,15 @@ const HorizontalTimeline = ({ timeline, onClipSelect, onClipDelete, onClipDrop, 
     const trimEnd = currentTrimEnd !== null ? currentTrimEnd : timelineClip.trimEnd
     const clipDuration = trimEnd - trimStart
     
-    const startPercentage = (timelineClip.startTime / timelineDuration) * 100
+    // Calculate the visual position and width
+    // When trimming from the left, we need to move the clip's visual start position
+    // The trim offset is how much we've trimmed from the original start
+    const originalTrimStart = timelineClip.clip.trimStart || 0
+    const trimOffset = trimStart - originalTrimStart
+    
+    // The visual start time is the timeline position plus the trim offset
+    const visualStartTime = timelineClip.startTime + trimOffset
+    const startPercentage = (visualStartTime / timelineDuration) * 100
     const widthPercentage = (clipDuration / timelineDuration) * 100
     
     return {
@@ -257,9 +265,9 @@ const HorizontalTimeline = ({ timeline, onClipSelect, onClipDelete, onClipDrop, 
                   return (
                     <div
                       key={`${timelineClip.clipId}-${index}`}
-                      className={`timeline-clip-bar ${isDragging && dragData?.clip === timelineClip ? 'dragging' : ''}`}
+                      className={`timeline-clip-bar ${isDragging && dragData?.clip === timelineClip ? 'dragging' : ''} ${selectedClip && selectedClip.id === timelineClip.clipId ? 'selected' : ''}`}
                       style={getClipStyle(timelineClip, currentTrimStart, currentTrimEnd)}
-                      onClick={() => onClipSelect(timelineClip.clip)}
+                      onClick={() => onClipSelect(timelineClip)}
                       onContextMenu={(e) => handleContextMenu(e, timelineClip, track.id)}
                       title={`${timelineClip.clip.fileName} (${formatTime(timelineClip.duration)}) - Right-click for options`}
                     >
