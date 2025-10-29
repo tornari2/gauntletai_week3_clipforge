@@ -110,34 +110,18 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     const videoTime = video.currentTime
     const timeInClip = videoTime - currentClip.trimStart
     
-    console.log('TimelinePreview: timeupdate event fired!', {
-      videoTime,
-      videoPaused: video.paused,
-      videoReadyState: video.readyState
-    })
-      
-      console.log('TimelinePreview: Time update:', {
-        videoTime,
-        trimStart: currentClip.trimStart,
-        trimEnd: currentClip.trimEnd,
-        timeInClip,
-        currentClipIndex,
-        totalClips: clips.length,
-        isPlaying,
-        accumulatedTime: clips.slice(0, currentClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
-      })
+    // console.log('TimelinePreview: timeupdate event fired!', {
+    //   videoTime,
+    //   videoPaused: video.paused,
+    //   videoReadyState: video.readyState
+    // })
       
       // Check if we've exceeded the trim end point
       if (videoTime >= currentClip.trimEnd) {
-        console.log('TimelinePreview: Reached trim end, checking for next clip')
         // Move to next clip
         if (currentClipIndex < clips.length - 1) {
-          console.log('TimelinePreview: Moving to next clip', currentClipIndex + 1, 'of', clips.length)
           shouldPlayRef.current = isPlaying
-          setCurrentClipIndex(prev => {
-            console.log('TimelinePreview: Setting clip index to:', prev + 1)
-            return prev + 1
-          })
+          setCurrentClipIndex(prev => prev + 1)
           
           // Calculate the timeline time for the start of the next clip's trimmed portion
           const nextClipIndex = currentClipIndex + 1
@@ -149,12 +133,14 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
             onPlayheadMove(nextClipTimelineTime)
           }
         } else {
-          console.log('TimelinePreview: End of timeline reached')
           // End of timeline
           video.pause()
           setIsPlaying(false)
           shouldPlayRef.current = false
           setCurrentTime(totalDuration)
+          if (onPlayheadMove) {
+            onPlayheadMove(totalDuration)
+          }
         }
       } else {
         // Update current time within the timeline
@@ -164,7 +150,6 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         
         // Update timeline playhead position
         if (onPlayheadMove) {
-          console.log('TimelinePreview: Updating playhead to:', timelineTime)
           onPlayheadMove(timelineTime)
         }
       }
@@ -224,28 +209,22 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     video.addEventListener('ended', handleEnded)
     video.addEventListener('error', handleError)
     
-    console.log('TimelinePreview: Added event listeners to video')
-
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate)
       video.removeEventListener('loadedmetadata', handleLoadedMetadata)
       video.removeEventListener('ended', handleEnded)
       video.removeEventListener('error', handleError)
-      console.log('TimelinePreview: Removed event listeners from video')
     }
-  }, [currentClip, currentClipIndex, clips, totalDuration, timeInCurrentClip])
+  }, [currentClip, currentClipIndex, clips, totalDuration])
 
   const togglePlayPause = () => {
     const video = videoRef.current
     if (!video || !currentClip) return
 
-    console.log('TimelinePreview: Toggle play/pause, current state:', isPlaying)
-
     if (isPlaying) {
       video.pause()
       setIsPlaying(false)
       shouldPlayRef.current = false
-      console.log('TimelinePreview: Paused video')
     } else {
       // If at the end, restart from beginning
       if (currentTime >= totalDuration) {
@@ -255,7 +234,6 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       video.play()
       setIsPlaying(true)
       shouldPlayRef.current = false
-      console.log('TimelinePreview: Started playing video')
     }
   }
 
