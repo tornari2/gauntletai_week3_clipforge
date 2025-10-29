@@ -52,15 +52,6 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     // Set initial position to trim start (always start at the beginning of the trimmed portion)
     video.currentTime = currentClip.trimStart
     
-    // Update timeline time correctly - start at the beginning of this clip's trimmed portion
-    const accumulatedTime = clips.slice(0, currentClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
-    setCurrentTime(accumulatedTime)
-    
-    // Update timeline playhead position
-    if (onPlayheadMove) {
-      onPlayheadMove(accumulatedTime)
-    }
-    
     // If we should be playing, start playing after the video is ready
     if (shouldPlayRef.current) {
       console.log('TimelinePreview: Setting up auto-play for next clip')
@@ -73,7 +64,14 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       }
       video.addEventListener('canplay', handleCanPlay)
     }
-  }, [currentClip, currentClipIndex, clips, onPlayheadMove])
+  }, [currentClip, currentClipIndex])
+
+  // Sync playhead position with currentTime (separate effect to avoid loops)
+  useEffect(() => {
+    if (onPlayheadMove && currentTime !== undefined) {
+      onPlayheadMove(currentTime)
+    }
+  }, [currentTime])
 
   // Handle video events
   useEffect(() => {
@@ -126,14 +124,6 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         const accumulatedTime = clips.slice(0, currentClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
         const timelineTime = accumulatedTime + timeInClip
         setCurrentTime(timelineTime)
-        
-        // Update timeline playhead position
-        if (onPlayheadMove) {
-          console.log('TimelinePreview: Calling onPlayheadMove with:', timelineTime)
-          onPlayheadMove(timelineTime)
-        } else {
-          console.warn('TimelinePreview: onPlayheadMove is not defined!')
-        }
       }
     }
 
@@ -197,7 +187,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       video.removeEventListener('ended', handleEnded)
       video.removeEventListener('error', handleError)
     }
-  }, [currentClip, currentClipIndex, clips, totalDuration, isPlaying, onPlayheadMove])
+  }, [currentClip, currentClipIndex, clips, totalDuration])
 
   const togglePlayPause = () => {
     const video = videoRef.current
