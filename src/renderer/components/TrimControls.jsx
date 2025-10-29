@@ -154,6 +154,19 @@ const TrimControls = ({ selectedClip, onTrimUpdate }) => {
   const endSeconds = parseTimeInput(endTime)
   const trimDuration = Math.max(0, endSeconds - startSeconds)
 
+  if (!selectedClip) {
+    return (
+      <div className="trim-controls">
+        <h3>Trim Controls</h3>
+        <div className="trim-controls-empty">
+          <div className="empty-icon">✂️</div>
+          <p>No editable clip selected</p>
+          <p className="text-muted">Drag a clip to the timeline to enable editing</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="trim-controls">
       <h3>Trim Controls</h3>

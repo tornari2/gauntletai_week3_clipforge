@@ -1,8 +1,6 @@
 import React from 'react'
 
-const HorizontalTimeline = ({ timeline, onClipSelect, onClipDelete, onClipDrop }) => {
-  const [dragOverTrack, setDragOverTrack] = React.useState(null)
-  
+const HorizontalTimeline = ({ timeline, onClipSelect, onClipDelete, onClipDrop, onTimelineClipDelete, onClipTrim }) => {
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
@@ -10,39 +8,11 @@ const HorizontalTimeline = ({ timeline, onClipSelect, onClipDelete, onClipDrop }
   }
 
   const getClipStyle = (timelineClip) => {
-    const leftPercent = (timelineClip.startTime / Math.max(timeline.duration, 1)) * 100
-    const widthPercent = (timelineClip.duration / Math.max(timeline.duration, 1)) * 100
-    
+    // Make clips fill the entire track width regardless of duration
     return {
-      left: `${leftPercent}%`,
-      width: `${widthPercent}%`,
+      left: '0%',
+      width: '100%',
       minWidth: '20px' // Ensure clips are visible even if very short
-    }
-  }
-
-  const handleDragOver = (e, trackId) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
-    setDragOverTrack(trackId)
-  }
-
-  const handleDragLeave = (e) => {
-    // Only clear drag over if we're leaving the track content area
-    if (!e.currentTarget.contains(e.relatedTarget)) {
-      setDragOverTrack(null)
-    }
-  }
-
-  const handleDrop = (e, trackId) => {
-    e.preventDefault()
-    setDragOverTrack(null)
-    try {
-      const clipData = JSON.parse(e.dataTransfer.getData('application/json'))
-      if (onClipDrop) {
-        onClipDrop(clipData, trackId)
-      }
-    } catch (error) {
-      console.error('Error parsing dropped clip data:', error)
     }
   }
 
@@ -56,20 +26,63 @@ const HorizontalTimeline = ({ timeline, onClipSelect, onClipDelete, onClipDrop }
       </div>
       
       <div className="timeline-container">
+        {/* Time Ruler Overlay */}
+        <div className="timeline-ruler">
+          <div className="ruler-track-labels">
+            <div className="ruler-spacer"></div>
+            <div className="ruler-content">
+              {(() => {
+                const maxDuration = Math.max(timeline.duration, 10) // Minimum 10 seconds
+                const rulerMarks = []
+                const markInterval = maxDuration <= 30 ? 5 : maxDuration <= 120 ? 10 : 30 // 5s, 10s, or 30s intervals
+                
+                for (let i = 0; i <= maxDuration; i += markInterval) {
+                  rulerMarks.push(
+                    <div 
+                      key={i} 
+                      className="ruler-mark"
+                      style={{ left: `${(i / maxDuration) * 100}%` }}
+                    >
+                      <div className="ruler-tick"></div>
+                      <div className="ruler-label">{formatTime(i)}</div>
+                    </div>
+                  )
+                }
+                return rulerMarks
+              })()}
+            </div>
+          </div>
+        </div>
+        
         {timeline.tracks.map(track => (
           <div key={track.id} className="timeline-track">
             <div className="track-label">
               {track.name}
             </div>
             <div 
-              className={`track-content ${dragOverTrack === track.id ? 'drag-over' : ''}`}
-              onDragOver={(e) => handleDragOver(e, track.id)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, track.id)}
+              className="track-content"
+              onDragOver={(e) => {
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'copy'
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                try {
+                  const clipData = e.dataTransfer.getData('application/json')
+                  if (clipData) {
+                    const clip = JSON.parse(clipData)
+                    if (onClipDrop) {
+                      onClipDrop(clip, track.id)
+                    }
+                  }
+                } catch (error) {
+                  console.error('Error handling drop:', error)
+                }
+              }}
             >
               {track.clips.length === 0 ? (
                 <div className="track-empty">
-                  Drop clips here
+                  Drop clips on {track.name}
                 </div>
               ) : (
                 track.clips.map((timelineClip, index) => (
@@ -92,6 +105,18 @@ const HorizontalTimeline = ({ timeline, onClipSelect, onClipDelete, onClipDrop }
                     {timelineClip.clip.isRecording && (
                       <div className="recording-indicator">🎥</div>
                     )}
+                    <button
+                      className="timeline-clip-delete"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (onTimelineClipDelete) {
+                          onTimelineClipDelete(track.id, timelineClip)
+                        }
+                      }}
+                      title="Delete from timeline"
+                    >
+                      ×
+                    </button>
                   </div>
                 ))
               )}

@@ -108,9 +108,24 @@ const VideoPlayer = ({ selectedClip }) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
+  const handleDragOver = (e) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'none'
+  }
+
+  const handleDrop = (e) => {
+    e.preventDefault()
+    // Prevent dropping videos directly into the player
+    console.log('VideoPlayer: Direct drop to player prevented - use timeline instead')
+  }
+
   if (!selectedClip) {
     return (
-      <div className="video-player">
+      <div 
+        className="video-player"
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
         <div className="video-player-empty">
           <div className="empty-icon">📺</div>
           <h3>No Video Selected</h3>
@@ -121,7 +136,11 @@ const VideoPlayer = ({ selectedClip }) => {
   }
 
   return (
-    <div className="video-player">
+    <div 
+      className="video-player"
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       <div className="video-container">
         <video
           ref={videoRef}

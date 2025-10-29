@@ -1,7 +1,7 @@
 import React from 'react'
 import FileImport from './FileImport'
 
-const Timeline = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideoImported, onClipDragStart }) => {
+const MediaLibrary = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideoImported, onClipDragStart }) => {
   const formatDuration = (seconds) => {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
@@ -56,7 +56,7 @@ const Timeline = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideoImpo
           {clips.map((clip) => (
             <div
               key={clip.id}
-              className={`timeline-clip ${selectedClip?.id === clip.id ? 'selected' : ''}`}
+              className={`timeline-clip ${selectedClip?.id === clip.id ? 'selected' : ''} preview-only`}
               draggable
               onDragStart={(e) => {
                 e.dataTransfer.setData('application/json', JSON.stringify(clip))
@@ -131,4 +131,4 @@ const Timeline = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideoImpo
   )
 }
 
-export default Timeline
+export default MediaLibrary

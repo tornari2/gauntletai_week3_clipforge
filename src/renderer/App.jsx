@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import Timeline from './components/Timeline'
+import MediaLibrary from './components/MediaLibrary'
 import VideoPlayer from './components/VideoPlayer'
 import TrimControls from './components/TrimControls'
 import ExportButton from './components/ExportButton'
@@ -9,6 +9,7 @@ import HorizontalTimeline from './components/HorizontalTimeline'
 function App() {
   const [clips, setClips] = useState([])
   const [selectedClip, setSelectedClip] = useState(null)
+  const [editableClip, setEditableClip] = useState(null) // Clip that can be edited
   
   // Timeline state
   const [timeline, setTimeline] = useState({
@@ -65,7 +66,14 @@ function App() {
   }
 
   const handleClipSelect = (clip) => {
+    // Only preview the clip, don't make it editable
     setSelectedClip(clip)
+  }
+
+  const handleTimelineClipSelect = (clip) => {
+    // Timeline clips can be both previewed and edited
+    setSelectedClip(clip)
+    setEditableClip(clip)
   }
 
   const handleClipDelete = (clipId) => {
@@ -79,6 +87,12 @@ function App() {
   }
 
   const handleTrimUpdate = (clipId, trimData) => {
+    // Only allow trimming if the clip is editable
+    if (!editableClip || editableClip.id !== clipId) {
+      console.log('App: Cannot trim clip - not editable:', clipId)
+      return
+    }
+
     setClips(prevClips => 
       prevClips.map(clip => 
         clip.id === clipId 
@@ -91,6 +105,11 @@ function App() {
     if (selectedClip && selectedClip.id === clipId) {
       setSelectedClip(prev => ({ ...prev, ...trimData }))
     }
+
+    // Update editable clip if it's the one being trimmed
+    if (editableClip && editableClip.id === clipId) {
+      setEditableClip(prev => ({ ...prev, ...trimData }))
+    }
   }
 
   const addClipToTimeline = (clip, trackId = 1) => {
@@ -101,6 +120,13 @@ function App() {
       const track = newTimeline.tracks.find(t => t.id === trackId)
       
       if (track) {
+        // Check if this clip is already in the timeline to prevent duplicates
+        const existingClip = track.clips.find(timelineClip => timelineClip.clipId === clip.id)
+        if (existingClip) {
+          console.log('App: Clip already exists in timeline, skipping duplicate:', clip.id)
+          return prevTimeline
+        }
+        
         // Calculate start time (end of last clip in track)
         const lastClip = track.clips[track.clips.length - 1]
         const startTime = lastClip ? lastClip.startTime + lastClip.duration : 0
@@ -135,7 +161,85 @@ function App() {
 
   const handleClipDrop = (clip, trackId) => {
     console.log('App: Clip dropped:', clip, 'on track:', trackId)
-    addClipToTimeline(clip, trackId)
+    
+    // Add a small delay to prevent rapid successive drops
+    setTimeout(() => {
+      addClipToTimeline(clip, trackId)
+    }, 50)
+  }
+
+  const handleTimelineClipDelete = (trackId, timelineClip) => {
+    console.log('App: Deleting timeline clip:', timelineClip, 'from track:', trackId)
+    
+    // If the deleted clip was editable, clear the editable state
+    if (editableClip && editableClip.id === timelineClip.clipId) {
+      setEditableClip(null)
+    }
+    
+    setTimeline(prevTimeline => {
+      const newTimeline = { ...prevTimeline }
+      const track = newTimeline.tracks.find(t => t.id === trackId)
+      
+      if (track) {
+        // Remove the clip from the track
+        track.clips = track.clips.filter(clip => 
+          !(clip.clipId === timelineClip.clipId && clip.startTime === timelineClip.startTime)
+        )
+        
+        // Recalculate timeline duration
+        const maxEndTime = Math.max(...track.clips.map(clip => clip.startTime + clip.duration), 0)
+        newTimeline.duration = Math.max(...newTimeline.tracks.map(t => 
+          Math.max(...t.clips.map(clip => clip.startTime + clip.duration), 0)
+        ))
+        
+        console.log('App: Updated timeline after deletion:', newTimeline)
+      }
+      
+      return newTimeline
+    })
+  }
+
+  const handleTimelineClipTrim = (clipId, trimData) => {
+    console.log('App: Trimming timeline clip:', clipId, 'with data:', trimData)
+    
+    // Update the timeline clip
+    setTimeline(prevTimeline => {
+      const newTimeline = { ...prevTimeline }
+      
+      newTimeline.tracks.forEach(track => {
+        track.clips = track.clips.map(clip => {
+          if (clip.clipId === clipId) {
+            const updatedClip = { ...clip }
+            if (trimData.trimStart !== undefined) {
+              updatedClip.trimStart = trimData.trimStart
+            }
+            if (trimData.trimEnd !== undefined) {
+              updatedClip.trimEnd = trimData.trimEnd
+            }
+            // Update duration based on trim
+            updatedClip.duration = updatedClip.trimEnd - updatedClip.trimStart
+            return updatedClip
+          }
+          return clip
+        })
+      })
+      
+      return newTimeline
+    })
+    
+    // Also update the original clip in the clips array
+    setClips(prevClips => 
+      prevClips.map(clip => 
+        clip.id === clipId 
+          ? { ...clip, ...trimData }
+          : clip
+      )
+    )
+    
+    // Update editable clip if it's the one being trimmed
+    if (editableClip && editableClip.id === clipId) {
+      setEditableClip(prev => ({ ...prev, ...trimData }))
+    }
   }
 
   const handleRecordingComplete = async (recordingData) => {
@@ -190,22 +294,11 @@ function App() {
           return updatedClips
         })
         
-        // Select the new recording
+        // Select the new recording for preview
         setSelectedClip(newClip)
         
-        // Auto-add to timeline based on recording type
-        let trackId = 1 // Default to main track
-        if (recordingData.type === 'pip') {
-          trackId = 2 // PiP recordings go to overlay track
-        } else if (recordingData.type === 'webcam') {
-          trackId = 2 // Webcam recordings go to overlay track
-        }
-        // Screen recordings go to main track (trackId = 1)
-        
-        addClipToTimeline(newClip, trackId)
-        
         // Show success message
-        alert(`Recording saved and added to media library and timeline: ${fileName}`)
+        alert(`Recording saved to media library: ${fileName}`)
       } else {
         throw new Error(result.error || 'Failed to save recording')
       }
@@ -225,7 +318,7 @@ function App() {
       <main className="app-main">
         <div className="app-layout">
           <div className="sidebar">
-            <Timeline 
+            <MediaLibrary 
               clips={clips}
               selectedClip={selectedClip}
               onClipSelect={handleClipSelect}
@@ -243,19 +336,21 @@ function App() {
             <div className="timeline-section">
               <HorizontalTimeline 
                 timeline={timeline}
-                onClipSelect={handleClipSelect}
+                onClipSelect={handleTimelineClipSelect}
                 onClipDelete={handleClipDelete}
                 onClipDrop={handleClipDrop}
+                onTimelineClipDelete={handleTimelineClipDelete}
+                onClipTrim={handleTimelineClipTrim}
               />
             </div>
             
             <div className="controls-section">
               <RecordingPanel onRecordingComplete={handleRecordingComplete} />
               <TrimControls 
-                selectedClip={selectedClip} 
+                selectedClip={editableClip} 
                 onTrimUpdate={handleTrimUpdate}
               />
-              <ExportButton selectedClip={selectedClip} />
+              <ExportButton selectedClip={editableClip} />
             </div>
           </div>
         </div>

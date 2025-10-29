@@ -269,7 +269,6 @@ function createWindow() {
         try {
           await mainWindow.loadURL(`http://localhost:${port}`)
           console.log(`Successfully loaded Vite dev server on port ${port}`)
-          mainWindow.webContents.openDevTools()
           return
         } catch (error) {
           console.log(`Port ${port} not available, trying next...`)
@@ -418,19 +417,34 @@ ipcMain.handle('get-video-metadata', async (event, filePath) => {
           const videoStream = metadata.streams.find(stream => stream.codec_type === 'video')
           const fileStats = require('fs').statSync(filePath)
           
+          // Handle WebM files that might have duration issues
+          let duration = metadata.format.duration
+          if (!duration || duration === 'N/A' || isNaN(duration)) {
+            // For WebM files, try to get duration from video stream
+            if (videoStream && videoStream.duration) {
+              duration = parseFloat(videoStream.duration)
+            } else {
+              duration = 0 // Default to 0 if we can't determine duration
+            }
+          } else {
+            duration = parseFloat(duration)
+          }
+          
+          // Handle bitrate for WebM files
+          let bitrate = 0
+          if (metadata.format.bit_rate && !isNaN(parseInt(metadata.format.bit_rate))) {
+            bitrate = parseInt(metadata.format.bit_rate)
+          } else if (videoStream && videoStream.bit_rate && !isNaN(parseInt(videoStream.bit_rate))) {
+            bitrate = parseInt(videoStream.bit_rate)
+          }
+          
           const metadata_result = {
-            duration: metadata.format.duration || 0,
+            duration: duration,
             width: videoStream ? videoStream.width : 0,
             height: videoStream ? videoStream.height : 0,
             fileSize: fileStats.size,
             codec: videoStream ? videoStream.codec_name : 'unknown',
-            bitrate: metadata.format.bit_rate ? parseInt(metadata.format.bit_rate) : 0
-          }
-          
-          // Handle WebM files that might have duration issues
-          if (filePath.toLowerCase().endsWith('.webm') && (!metadata_result.duration || metadata_result.duration === 'N/A')) {
-            console.log('Main: WebM file with duration issues, using fallback duration')
-            metadata_result.duration = 0 // Will be handled in the frontend
+            bitrate: bitrate
           }
           
           console.log('Main: Video metadata:', metadata_result)
@@ -459,62 +473,46 @@ ipcMain.handle('generate-thumbnail', async (event, filePath, outputPath) => {
     }
     
     return new Promise((resolve, reject) => {
-      // For WebM files, use a specific approach to handle duration issues
-      const isWebM = filePath.toLowerCase().endsWith('.webm')
-      
-      if (isWebM) {
-        // For WebM files, try to get thumbnail at 1 second first
-        ffmpeg(filePath)
-          .screenshots({
-            timestamps: ['1'], // Try 1 second first
-            filename: path.basename(outputPath),
-            folder: path.dirname(outputPath),
-            size: '320x180'
-          })
-          .on('end', () => {
-            console.log('Main: WebM thumbnail generated successfully')
-            resolve(outputPath)
-          })
-          .on('error', (err) => {
-            console.log('Main: WebM thumbnail at 1s failed, trying 10%:', err.message)
-            // If 1 second fails, try 10% with fixed timemarks
-            ffmpeg(filePath)
-              .screenshots({
-                timestamps: ['10%'],
-                filename: path.basename(outputPath),
-                folder: path.dirname(outputPath),
-                size: '320x180'
-              })
-              .on('end', () => {
-                console.log('Main: WebM thumbnail generated at 10%')
-                resolve(outputPath)
-              })
-              .on('error', (err2) => {
-                console.error('Main: WebM thumbnail generation failed:', err2)
-                // Create a placeholder thumbnail
-                createPlaceholderThumbnail(outputPath)
-                  .then(() => resolve(outputPath))
-                  .catch(reject)
-              })
-          })
-      } else {
-        // For other formats, use the original approach
-        ffmpeg(filePath)
-          .screenshots({
-            timestamps: ['10%'], // Take thumbnail at 10% of video duration
-            filename: path.basename(outputPath),
-            folder: path.dirname(outputPath),
-            size: '320x180' // 16:9 aspect ratio, reasonable size
-          })
-          .on('end', () => {
-            console.log('Main: Thumbnail generated successfully')
-            resolve(outputPath)
-          })
-          .on('error', (err) => {
-            console.error('Main: Thumbnail generation error:', err)
-            reject(err)
-          })
-      }
+      // First try to get duration to determine if we can use percentage
+      ffmpeg.ffprobe(filePath, (err, metadata) => {
+        if (err || !metadata.format.duration || metadata.format.duration === 'N/A') {
+          // If we can't get duration, use a fixed timestamp (1 second)
+          console.log('Main: Using fixed timestamp for thumbnail (1 second)')
+          ffmpeg(filePath)
+            .screenshots({
+              timestamps: ['00:00:01'], // Take thumbnail at 1 second
+              filename: path.basename(outputPath),
+              folder: path.dirname(outputPath),
+              size: '320x180'
+            })
+            .on('end', () => {
+              console.log('Main: Thumbnail generated successfully (fixed timestamp)')
+              resolve(outputPath)
+            })
+            .on('error', (err) => {
+              console.error('Main: Thumbnail generation error (fixed timestamp):', err)
+              reject(err)
+            })
+        } else {
+          // Use percentage if we have duration
+          console.log('Main: Using percentage timestamp for thumbnail (10%)')
+          ffmpeg(filePath)
+            .screenshots({
+              timestamps: ['10%'],
+              filename: path.basename(outputPath),
+              folder: path.dirname(outputPath),
+              size: '320x180'
+            })
+            .on('end', () => {
+              console.log('Main: Thumbnail generated successfully (percentage)')
+              resolve(outputPath)
+            })
+            .on('error', (err) => {
+              console.error('Main: Thumbnail generation error (percentage):', err)
+              reject(err)
+            })
+        }
+      })
     })
   } catch (error) {
     console.error('Error generating thumbnail:', error)
@@ -770,26 +768,6 @@ ipcMain.handle('restore-window', async () => {
     return { success: false, error: error.message }
   }
 })
-
-// Helper function to create a placeholder thumbnail
-function createPlaceholderThumbnail(outputPath) {
-  return new Promise((resolve, reject) => {
-    // Create a simple colored rectangle as placeholder
-    ffmpeg()
-      .input('color=c=black:s=320x180:d=1')
-      .inputFormat('lavfi')
-      .output(outputPath)
-      .on('end', () => {
-        console.log('Main: Placeholder thumbnail created')
-        resolve(outputPath)
-      })
-      .on('error', (err) => {
-        console.error('Main: Error creating placeholder thumbnail:', err)
-        reject(err)
-      })
-      .run()
-  })
-}
 
 // Save recording file
 ipcMain.handle('save-recording-file', async (event, arrayBuffer, fileName) => {
