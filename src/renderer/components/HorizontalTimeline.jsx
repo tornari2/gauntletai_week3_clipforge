@@ -5,6 +5,7 @@ const HorizontalTimeline = ({ timeline, onClipSelect, onClipDelete, onClipDrop, 
   const [dragData, setDragData] = useState(null)
   const [contextMenu, setContextMenu] = useState(null)
   const [currentTrimValues, setCurrentTrimValues] = useState({}) // Track current trim values during drag
+  const [dragOverTrack, setDragOverTrack] = useState(null) // Track which track is being hovered over
   const trackRef = useRef(null)
   const animationFrameRef = useRef(null)
   const formatTime = (seconds) => {
@@ -245,15 +246,25 @@ const HorizontalTimeline = ({ timeline, onClipSelect, onClipDelete, onClipDrop, 
             </div>
             <div 
               ref={trackRef}
-              className="track-content"
+              className={`track-content ${dragOverTrack === track.id ? 'drag-over' : ''}`}
               onDragOver={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
                 e.dataTransfer.dropEffect = 'copy'
+                setDragOverTrack(track.id)
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                // Only clear drag state if we're leaving the track entirely
+                if (!e.currentTarget.contains(e.relatedTarget)) {
+                  setDragOverTrack(null)
+                }
               }}
               onDrop={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
+                setDragOverTrack(null)
                 try {
                   const clipData = e.dataTransfer.getData('application/json')
                   if (clipData) {

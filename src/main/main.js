@@ -223,7 +223,6 @@ function createWindow() {
         const mediaLibrary = e.target.closest('.timeline')
         if (mediaLibrary) {
           mediaLibrary.classList.remove('drag-over')
-          alert('Please use the "Import Video" button to add videos to your project.')
         }
       })
     `)
