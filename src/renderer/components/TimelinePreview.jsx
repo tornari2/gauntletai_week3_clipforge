@@ -30,17 +30,17 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     // Reset to first clip when timeline changes
     if (timelineClips.length > 0) {
       setCurrentClipIndex(0)
-      // Start at the first clip's position on the timeline (its startTime)
+      // Start at the beginning of the first clip's position on the timeline
       const firstClipStartTime = timelineClips[0].startTime
       setCurrentTime(0)
       currentTimeRef.current = 0
       
-      // Update playhead to the first clip's position on the timeline
+      // Update playhead to the first clip's start position on the timeline
       if (onPlayheadMove) {
         onPlayheadMove(firstClipStartTime)
       }
     }
-  }, [timeline])
+  }, [timeline, onPlayheadMove])
 
   // Get current clip info with bounds checking
   const safeClipIndex = Math.min(Math.max(0, currentClipIndex), clips.length - 1)
@@ -102,10 +102,11 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
           setCurrentTime(nextClipTimelineTime)
           currentTimeRef.current = nextClipTimelineTime
           
-          // Update playhead to the next clip's position on the timeline (its startTime)
-          const nextClip = clips[nextClipIndex]
-          if (onPlayheadMove && nextClip) {
-            onPlayheadMove(nextClip.startTime)
+          // Update playhead position (continues from current position, doesn't jump)
+          const firstClipStartTime = clips[0]?.startTime || 0
+          const nextPlayheadPosition = firstClipStartTime + nextClipTimelineTime
+          if (onPlayheadMove) {
+            onPlayheadMove(nextPlayheadPosition)
           }
         } else {
           // End of timeline
@@ -124,8 +125,10 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         const timelineTime = accumulatedTime + timeInClip
         currentTimeRef.current = timelineTime
         
-        // Calculate playhead position on the timeline (add the current clip's startTime)
-        const playheadPosition = currentClip.startTime + timeInClip
+        // Calculate playhead position on the timeline
+        // Start from the first clip's startTime and add the elapsed timeline time
+        const firstClipStartTime = clips[0]?.startTime || 0
+        const playheadPosition = firstClipStartTime + timelineTime
         
         // Update progress bar DOM directly (no re-render)
         if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
