@@ -187,6 +187,15 @@ function App() {
         
         // Recalculate timeline duration based on all clips
         newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
+        
+        // Set playhead to beginning of first clip's active region when adding to empty timeline
+        const wasEmpty = prevTimeline.duration === 0
+        if (wasEmpty && track.clips.length > 0) {
+          const firstClip = track.clips[0]
+          // Position playhead at the start of the active region (not grey area)
+          newTimeline.playheadPosition = firstClip.startTime + firstClip.trimStart
+          console.log('App: Setting playhead to start of first clip active region:', newTimeline.playheadPosition)
+        }
       }
       
       return newTimeline
@@ -222,7 +231,15 @@ function App() {
     // Add to timeline and set as selected for preview
     addClipToTimeline(clip, trackId)
     setSelectedClip(clip)
-    console.log('App: Set selected clip for preview:', clip)
+    
+    // Set as editable so trimming works
+    const editableClipWithTrims = {
+      ...clip,
+      trimStart: clip.trimStart || 0,
+      trimEnd: clip.trimEnd || clip.duration
+    }
+    setEditableClip(editableClipWithTrims)
+    console.log('App: Set selected clip and editable clip for preview:', clip)
   }
 
   const handleTimelineClipDelete = (trackId, timelineClip) => {
@@ -269,6 +286,30 @@ function App() {
         // Recalculate timeline duration
         newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
         
+        // Reset playhead to beginning of first clip's active region if timeline becomes empty
+        const hasAnyClips = newTimeline.tracks.some(t => t.clips.length > 0)
+        if (!hasAnyClips) {
+          newTimeline.playheadPosition = 0
+        }
+        // If still has clips, clamp playhead to valid range
+        else {
+          // Find the first clip in the main track
+          const mainTrack = newTimeline.tracks.find(t => t.id === 1)
+          if (mainTrack && mainTrack.clips.length > 0) {
+            const firstClip = mainTrack.clips[0]
+            const firstActiveStart = firstClip.startTime + firstClip.trimStart
+            
+            // If playhead is before the first clip's active region, reset to active start
+            if (newTimeline.playheadPosition < firstActiveStart) {
+              newTimeline.playheadPosition = firstActiveStart
+            }
+            // If playhead is beyond timeline duration, clamp to duration
+            else if (newTimeline.playheadPosition > newTimeline.duration) {
+              newTimeline.playheadPosition = Math.max(firstActiveStart, newTimeline.duration)
+            }
+          }
+        }
+        
         console.log('App: Updated timeline after deletion:', newTimeline)
         console.log('App: Remaining clips in track:', track.clips.map(c => ({ clipId: c.clipId, fileName: c.clip.fileName })))
       }
@@ -278,26 +319,80 @@ function App() {
   }
 
   const handleTimelineClipTrim = (clipId, trimData) => {
+    // Capture current playhead position before trimming
+    const currentPlayheadPosition = timeline.playheadPosition
+    
     // Update the timeline clip - ONLY update trim values, do NOT reposition
     setTimeline(prevTimeline => {
       const newTimeline = { ...prevTimeline }
       
-      newTimeline.tracks.forEach(track => {
-        track.clips = track.clips.map(clip => {
+      let affectedClip = null
+      let oldTrimStart = 0
+      let oldTrimEnd = 0
+      
+      // Update trim values and capture old values
+      newTimeline.tracks.forEach((track) => {
+        track.clips = track.clips.map((clip) => {
           if (clip.clipId === clipId) {
-            const updatedClip = { ...clip }
+            affectedClip = { ...clip }
+            oldTrimStart = clip.trimStart
+            oldTrimEnd = clip.trimEnd
+            
+            // Apply new trim values
             if (trimData.trimStart !== undefined) {
-              updatedClip.trimStart = trimData.trimStart
+              affectedClip.trimStart = trimData.trimStart
             }
             if (trimData.trimEnd !== undefined) {
-              updatedClip.trimEnd = trimData.trimEnd
+              affectedClip.trimEnd = trimData.trimEnd
             }
+            
             // DO NOT update duration or startTime - clip maintains full size
-            return updatedClip
+            return affectedClip
           }
           return clip
         })
       })
+      
+      // Playhead adjustment logic: Move playhead if trim handle passes it
+      if (affectedClip && currentPlayheadPosition !== undefined && currentPlayheadPosition !== null) {
+        // Calculate active regions (where video is actually visible, not greyed out)
+        const clipVisualStart = affectedClip.startTime
+        const clipVisualEnd = affectedClip.startTime + affectedClip.clip.duration
+        const newActiveStart = affectedClip.startTime + affectedClip.trimStart
+        const newActiveEnd = affectedClip.startTime + affectedClip.trimEnd
+        
+        console.log('=== Playhead Trim Check ===')
+        console.log('  Current playhead position:', currentPlayheadPosition)
+        console.log('  Clip visual bounds:', clipVisualStart, 'to', clipVisualEnd)
+        console.log('  New active region:', newActiveStart, 'to', newActiveEnd)
+        
+        // Check if playhead is anywhere within this clip's visual bounds (including grey areas)
+        if (currentPlayheadPosition >= clipVisualStart && currentPlayheadPosition < clipVisualEnd) {
+          console.log('  -> Playhead is within clip visual bounds')
+          
+          // Check if trimming from the FRONT passes the playhead
+          // Playhead should follow the trim handle when it moves past the playhead
+          if (newActiveStart > currentPlayheadPosition) {
+            console.log('  -> Front trim passed playhead, moving to:', newActiveStart)
+            newTimeline.playheadPosition = newActiveStart
+          }
+          // Check if trimming from the BACK passes the playhead
+          // Playhead should follow the trim handle when it moves past the playhead
+          else if (newActiveEnd < currentPlayheadPosition) {
+            console.log('  -> Back trim passed playhead, moving to:', newActiveEnd)
+            newTimeline.playheadPosition = newActiveEnd
+          }
+          else {
+            console.log('  -> Playhead is within active region, no change')
+            // Playhead is within the active region, don't move it
+            newTimeline.playheadPosition = currentPlayheadPosition
+          }
+        } else {
+          console.log('  -> Playhead is outside clip, no adjustment')
+          // Playhead is not in this clip at all, so trimming doesn't affect it
+          newTimeline.playheadPosition = currentPlayheadPosition
+        }
+      }
       
       // DO NOT recalculate timeline duration - trimming doesn't change clip positions
       
@@ -493,6 +588,9 @@ function App() {
             // Recalculate timeline duration
             newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
             
+            // DO NOT reset playhead after split - keep it at current position
+            // Playhead should remain where it was when splitting
+            
             // Clear selection after split - clips should go back to blue
             setSelectedClip(null)
             setEditableClip(null)
@@ -541,7 +639,14 @@ function App() {
       }
       
       // DO NOT recalculate timeline duration - just reorganizing clips shouldn't change total duration
-      // Timeline duration only changes when clips are added, removed, or split
+      
+      // Reset playhead to beginning of first clip's active region after repositioning
+      const mainTrack = newTimeline.tracks.find(t => t.id === 1)
+      if (mainTrack && mainTrack.clips.length > 0) {
+        const firstClip = mainTrack.clips[0]
+        newTimeline.playheadPosition = firstClip.startTime + firstClip.trimStart
+        console.log('App: Resetting playhead after reposition to:', newTimeline.playheadPosition)
+      }
       
       return newTimeline
     })

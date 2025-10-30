@@ -69,9 +69,10 @@ const HorizontalTimeline = ({
   }
 
   // Calculate visual playhead position on timeline
-  // Converts playback time (sum of active durations) to visual position
+  // timeline.playheadPosition is already stored as a visual position (absolute timeline position)
+  // So we just return it directly (no conversion needed)
   const calculateVisualPlayheadPosition = () => {
-    if (!timeline || !timeline.playheadPosition || !timeline.tracks) {
+    if (!timeline || timeline.playheadPosition === undefined || timeline.playheadPosition === null || !timeline.tracks) {
       return null
     }
     
@@ -80,32 +81,9 @@ const HorizontalTimeline = ({
       return null
     }
     
-    const playheadTime = timeline.playheadPosition
-    let accumulatedActiveDuration = 0
-    
-    // Find which clip we're in based on accumulated active durations
-    for (let i = 0; i < mainTrack.clips.length; i++) {
-      const clip = mainTrack.clips[i]
-      const clipActiveDuration = clip.trimEnd - clip.trimStart
-      
-      if (playheadTime <= accumulatedActiveDuration + clipActiveDuration) {
-        // We're in this clip
-        const timeInClip = playheadTime - accumulatedActiveDuration
-        // Visual position = clip's visual start + trim start + progress in active region
-        const visualPosition = clip.startTime + clip.trimStart + timeInClip
-        return visualPosition
-      }
-      
-      accumulatedActiveDuration += clipActiveDuration
-    }
-    
-    // If we're past all clips, position at the end
-    const lastClip = mainTrack.clips[mainTrack.clips.length - 1]
-    if (lastClip) {
-      return lastClip.startTime + lastClip.trimEnd
-    }
-    
-    return null
+    // playheadPosition is already a visual position (absolute timeline position)
+    // Just return it directly - trimming doesn't change the visual position unless it would cut it off
+    return timeline.playheadPosition
   }
 
   const visualPlayheadPosition = calculateVisualPlayheadPosition()

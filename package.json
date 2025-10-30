@@ -61,7 +61,10 @@
     "mac": {
       "target": "dmg",
       "icon": "build/icon.icns",
-      "category": "public.app-category.video"
+      "category": "public.app-category.video",
+      "info": {
+        "NSCameraUseContinuityCameraDeviceType": true
+      }
     },
     "win": {
       "target": "nsis",

@@ -668,6 +668,7 @@ ipcMain.handle('export-timeline', async (event, options) => {
   
   try {
     console.log('Main: Exporting timeline with', clips.length, 'clips')
+    console.log('Main: Clips:', clips.map(c => ({ file: c.filePath, start: c.startTime, duration: c.duration })))
     
     return new Promise((resolve, reject) => {
       let command = ffmpeg()
@@ -677,63 +678,100 @@ ipcMain.handle('export-timeline', async (event, options) => {
         command.input(clip.filePath)
       })
       
-      // Build filter complex for trimming, concatenating, and scaling
+      // Build filter complex for trimming, normalizing, concatenating, and scaling
+      // This handles mixed formats (MP4, MOV, WebM) by normalizing everything to common codecs
       let filterComplex = ''
       
-      // Trim video streams from each clip
+      // Determine target resolution from first clip or specified resolution
+      let targetWidth = null
+      let targetHeight = null
+      
+      if (resolution !== 'original') {
+        const resolutionMap = {
+          '4K': { width: 3840, height: 2160 },
+          '1080p': { width: 1920, height: 1080 },
+          '720p': { width: 1280, height: 720 },
+          '480p': { width: 854, height: 480 },
+          '360p': { width: 640, height: 360 }
+        }
+        if (resolutionMap[resolution]) {
+          targetWidth = resolutionMap[resolution].width
+          targetHeight = resolutionMap[resolution].height
+        }
+      }
+      
+      // Process each clip: trim, normalize format/codec, scale if needed
       clips.forEach((clip, index) => {
-        filterComplex += `[${index}:v]trim=start=${clip.startTime}:duration=${clip.duration},setpts=PTS-STARTPTS[v${index}];`
+        // Trim video
+        filterComplex += `[${index}:v]trim=start=${clip.startTime}:duration=${clip.duration},setpts=PTS-STARTPTS`
+        
+        // Scale if needed (before concatenation for consistent sizes)
+        if (targetWidth && targetHeight) {
+          filterComplex += `,scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2`
+        }
+        
+        filterComplex += `[v${index}];`
+        
+        // Process audio (trim and normalize)
+        // Handle clips with or without audio
+        filterComplex += `[${index}:a]atrim=start=${clip.startTime}:duration=${clip.duration},asetpts=PTS-STARTPTS`
+        
+        // Normalize audio format (convert to consistent format for concatenation)
+        filterComplex += `,aformat=sample_rates=48000:channel_layouts=stereo`
+        
+        filterComplex += `[a${index}];`
       })
       
       // Concatenate video streams
-      const videoConcat = clips.map((_, index) => `[v${index}]`).join('') + `concat=n=${clips.length}:v=1:a=0[vconcat]`
-      filterComplex += videoConcat
+      const videoInputs = clips.map((_, index) => `[v${index}]`).join('')
+      filterComplex += `${videoInputs}concat=n=${clips.length}:v=1:a=0[vconcat];`
       
-      // Add scaling to filter if not original resolution
-      if (resolution !== 'original') {
-        const resolutionMap = {
-          '4K': { width: 3840, height: 2160, bitrate: '15000k' },
-          '1080p': { width: 1920, height: 1080, bitrate: '5000k' },
-          '720p': { width: 1280, height: 720, bitrate: '2500k' },
-          '480p': { width: 854, height: 480, bitrate: '1000k' },
-          '360p': { width: 640, height: 360, bitrate: '500k' }
-        }
-        
-        if (resolutionMap[resolution]) {
-          const res = resolutionMap[resolution]
-          // Add scale filter to the concatenated output
-          filterComplex += `;[vconcat]scale=${res.width}:${res.height}[outv]`
-          console.log(`Main: Scaling timeline to ${resolution} (${res.width}x${res.height}) with bitrate ${res.bitrate}`)
-          
-          // Set video bitrate
-          command.videoBitrate(res.bitrate)
-        } else {
-          // No scaling, just use concat output directly
-          filterComplex += ';[vconcat]copy[outv]'
-        }
-      } else {
-        // No scaling, just rename the concat output
-        filterComplex = filterComplex.replace('[vconcat]', '[outv]')
-      }
+      // Concatenate audio streams
+      const audioInputs = clips.map((_, index) => `[a${index}]`).join('')
+      filterComplex += `${audioInputs}concat=n=${clips.length}:v=0:a=1[aconcat];`
+      
+      // Final output labels
+      filterComplex += '[vconcat][aconcat]'
       
       console.log('Main: Filter complex:', filterComplex)
       
       // Apply filter complex
       command.complexFilter(filterComplex)
       
-      // Map video output only (audio handled separately if present)
-      command.outputOptions(['-map', '[outv]'])
-      
-      // Try to map audio from first input as a simple approach
-      // This assumes all clips have similar audio, or at least the first one does
-      command.outputOptions(['-map', '0:a?'])
+      // Map both video and audio outputs
+      command.outputOptions(['-map', '[vconcat]'])
+      command.outputOptions(['-map', '[aconcat]'])
       
       // Set output file
       command.output(outputPath)
       
-      // Set codecs
+      // Set codecs (normalize to h264/aac for compatibility)
       command.videoCodec('libx264')
       command.audioCodec('aac')
+      
+      // Set quality/bitrate based on resolution
+      if (resolution !== 'original') {
+        const resolutionMap = {
+          '4K': { bitrate: '15000k' },
+          '1080p': { bitrate: '5000k' },
+          '720p': { bitrate: '2500k' },
+          '480p': { bitrate: '1000k' },
+          '360p': { bitrate: '500k' }
+        }
+        
+        if (resolutionMap[resolution]) {
+          command.videoBitrate(resolutionMap[resolution].bitrate)
+          command.audioBitrate('128k')
+        }
+      } else {
+        // Use reasonable defaults for original resolution
+        command.videoBitrate('5000k')
+        command.audioBitrate('128k')
+      }
+      
+      // Set quality presets
+      command.outputOptions(['-preset', 'medium'])
+      command.outputOptions(['-crf', '23'])
       
       command
         .on('progress', (progress) => {

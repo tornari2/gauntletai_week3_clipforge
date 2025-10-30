@@ -16,6 +16,9 @@ const RecordingControls = ({
   const recordingIntervalRef = useRef(null)
   const streamRef = useRef(null)
   const recordingStartTimeRef = useRef(null)
+  const pipAnimationFrameRef = useRef(null)
+  const pipVideoElementsRef = useRef(null)
+  const pipCanvasRef = useRef(null)
 
   // Cleanup on unmount
   useEffect(() => {
@@ -24,7 +27,16 @@ const RecordingControls = ({
         clearInterval(recordingIntervalRef.current)
       }
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop())
+        // Handle PiP cleanup
+        if (streamRef.current._cleanup) {
+          streamRef.current._cleanup()
+        } else if (streamRef.current.getTracks) {
+          streamRef.current.getTracks().forEach(track => track.stop())
+        }
+      }
+      // Clean up PiP animation frame
+      if (pipAnimationFrameRef.current) {
+        cancelAnimationFrame(pipAnimationFrameRef.current)
       }
     }
   }, [])
@@ -144,37 +156,51 @@ const RecordingControls = ({
       throw new Error('No video source selected')
     }
     
-    // Request screen capture - try with system audio first, fallback to no audio
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: selectedVideoSource.id
-          }
-        },
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: selectedVideoSource.id
-          }
+    // Request screen capture - always get video-only to avoid conflicts
+    // We'll add microphone audio separately
+    const screenStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: selectedVideoSource.id
         }
-      })
-      return stream
-    } catch (audioError) {
-      console.log('Screen recording with audio failed, trying without audio:', audioError)
-      // Fallback to video-only screen recording
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: selectedVideoSource.id
-          }
-        }
-      })
-      return stream
+      }
+    })
+    console.log('Screen recording: Got screen video stream')
+    
+    // If microphone is selected, add it to the stream
+    if (selectedAudioSource) {
+      try {
+        console.log('Screen recording: Adding microphone audio:', selectedAudioSource.name)
+        const micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: { exact: selectedAudioSource.id }
+          },
+          video: false
+        })
+        
+        // Remove any existing audio tracks first (shouldn't be any, but just in case)
+        screenStream.getAudioTracks().forEach(track => {
+          console.log('Screen recording: Removing existing audio track:', track.label)
+          track.stop()
+          screenStream.removeTrack(track)
+        })
+        
+        // Add microphone audio tracks to the screen stream
+        micStream.getAudioTracks().forEach(track => {
+          screenStream.addTrack(track)
+          console.log('Screen recording: Added microphone track:', track.label)
+        })
+        
+        console.log('Screen recording: Final stream has', screenStream.getAudioTracks().length, 'audio track(s)')
+      } catch (micError) {
+        console.warn('Screen recording: Failed to add microphone audio:', micError)
+        // Continue with screen recording even if microphone fails
+      }
     }
+    
+    return screenStream
   }
 
   const startWebcamRecording = async () => {
@@ -204,50 +230,136 @@ const RecordingControls = ({
     
     console.log('RecordingControls: Starting PiP recording...')
     
-    // Use the same approach as screen recording but with better error handling
-    let screenStream
-    try {
-      // Try to get screen with audio first
-      screenStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: selectedVideoSource.id
-          }
-        },
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: selectedVideoSource.id
-          }
+    // Get screen stream (video only)
+    const screenStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: selectedVideoSource.id
         }
-      })
-      console.log('RecordingControls: Screen stream with audio obtained for PiP')
-    } catch (audioError) {
-      console.log('RecordingControls: Screen recording with audio failed, trying without audio:', audioError)
-      try {
-        // Fallback to video-only screen recording
-        screenStream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: {
-            mandatory: {
-              chromeMediaSource: 'desktop',
-              chromeMediaSourceId: selectedVideoSource.id
-            }
-          }
-        })
-        console.log('RecordingControls: Screen stream without audio obtained for PiP')
-      } catch (videoError) {
-        console.error('RecordingControls: Failed to get screen stream for PiP:', videoError)
-        throw new Error(`PiP recording failed: ${videoError.message}`)
       }
+    })
+    console.log('RecordingControls: Screen stream obtained for PiP')
+    
+    // Get webcam stream (video + audio)
+    const webcamStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        deviceId: { exact: selectedAudioSource.id }
+      },
+      video: {
+        width: { ideal: 320 },
+        height: { ideal: 240 },
+        frameRate: { ideal: 30 }
+      }
+    })
+    console.log('RecordingControls: Webcam stream obtained for PiP')
+    
+    // Create canvas to composite screen + webcam (PiP)
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    
+    // Get video elements for both streams
+    const screenVideo = document.createElement('video')
+    screenVideo.srcObject = screenStream
+    screenVideo.autoplay = true
+    screenVideo.playsInline = true
+    
+    const webcamVideo = document.createElement('video')
+    webcamVideo.srcObject = webcamStream
+    webcamVideo.autoplay = true
+    webcamVideo.playsInline = true
+    
+    // Wait for both videos to be ready
+    await Promise.all([
+      new Promise(resolve => {
+        screenVideo.onloadedmetadata = () => {
+          canvas.width = screenVideo.videoWidth
+          canvas.height = screenVideo.videoHeight
+          resolve()
+        }
+      }),
+      new Promise(resolve => {
+        webcamVideo.onloadedmetadata = resolve
+      })
+    ])
+    
+    // Calculate PiP size and position (bottom right corner, 20% of screen size)
+    const pipWidth = Math.floor(canvas.width * 0.2)
+    const pipHeight = Math.floor(canvas.height * 0.2)
+    const pipX = canvas.width - pipWidth - 20 // 20px margin from right
+    const pipY = canvas.height - pipHeight - 20 // 20px margin from bottom
+    
+    console.log('RecordingControls: PiP overlay at', pipX, pipY, 'size:', pipWidth, 'x', pipHeight)
+    
+    // Store references to prevent garbage collection
+    pipCanvasRef.current = canvas
+    pipVideoElementsRef.current = { screenVideo, webcamVideo }
+    
+    // Draw composite frame
+    const drawFrame = () => {
+      if (!pipCanvasRef.current || !pipVideoElementsRef.current) return
+      
+      const currentCanvas = pipCanvasRef.current
+      const currentCtx = currentCanvas.getContext('2d')
+      const { screenVideo: sv, webcamVideo: wv } = pipVideoElementsRef.current
+      
+      // Only draw if videos are ready
+      if (sv.readyState >= 2 && wv.readyState >= 2) {
+        // Draw screen (full size)
+        currentCtx.drawImage(sv, 0, 0, currentCanvas.width, currentCanvas.height)
+        
+        // Draw webcam PiP (bottom right corner)
+        currentCtx.drawImage(wv, pipX, pipY, pipWidth, pipHeight)
+        
+        // Draw border around PiP
+        currentCtx.strokeStyle = '#000'
+        currentCtx.lineWidth = 3
+        currentCtx.strokeRect(pipX, pipY, pipWidth, pipHeight)
+      }
+      
+      pipAnimationFrameRef.current = requestAnimationFrame(drawFrame)
     }
     
-    // Store the stream for cleanup
-    streamRef.current = screenStream
+    // Start drawing
+    pipAnimationFrameRef.current = requestAnimationFrame(drawFrame)
     
-    console.log('RecordingControls: PiP recording setup complete (using screen recording approach)')
-    return screenStream
+    // Get canvas stream
+    const compositeStream = canvas.captureStream(30) // 30 fps
+    
+    // Add webcam audio to the composite stream
+    webcamStream.getAudioTracks().forEach(track => {
+      compositeStream.addTrack(track)
+      console.log('RecordingControls: Added webcam audio track to PiP:', track.label)
+    })
+    
+    // Store references for cleanup
+    streamRef.current = compositeStream
+    // Store cleanup function
+    streamRef.current._cleanup = () => {
+      // Cancel animation frame
+      if (pipAnimationFrameRef.current) {
+        cancelAnimationFrame(pipAnimationFrameRef.current)
+        pipAnimationFrameRef.current = null
+      }
+      
+      // Stop video elements
+      if (pipVideoElementsRef.current) {
+        pipVideoElementsRef.current.screenVideo.srcObject?.getTracks().forEach(track => track.stop())
+        pipVideoElementsRef.current.webcamVideo.srcObject?.getTracks().forEach(track => track.stop())
+        pipVideoElementsRef.current = null
+      }
+      
+      // Stop streams
+      screenStream.getTracks().forEach(track => track.stop())
+      webcamStream.getTracks().forEach(track => track.stop())
+      
+      // Clean up canvas
+      pipCanvasRef.current = null
+    }
+    
+    console.log('RecordingControls: PiP recording setup complete')
+    return compositeStream
   }
 
   const stopRecording = async () => {
@@ -256,9 +368,11 @@ const RecordingControls = ({
       
       // Stop all tracks and clean up resources
       if (streamRef.current) {
-        // Handle PiP recording cleanup (simplified)
-        if (streamRef.current && streamRef.current.getTracks) {
-          // All recording types now use the same cleanup
+        // Handle PiP recording cleanup (has custom cleanup function)
+        if (streamRef.current._cleanup) {
+          streamRef.current._cleanup()
+        } else if (streamRef.current && streamRef.current.getTracks) {
+          // Standard cleanup for other recording types
           streamRef.current.getTracks().forEach(track => track.stop())
         }
         
