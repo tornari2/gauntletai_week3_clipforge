@@ -480,6 +480,15 @@ const HorizontalTimeline = ({
 
   // Check if playhead is over a clip's active region
   const isPlayheadOverClip = (clip) => {
+    // First check if playhead is within the clip's visual bounds on timeline
+    const clipVisualStart = clip.startTime
+    const clipVisualEnd = clip.startTime + clip.clip.duration
+    
+    if (timeline.playheadPosition < clipVisualStart || timeline.playheadPosition >= clipVisualEnd) {
+      return false // Not in this clip at all
+    }
+    
+    // Now check if it's in the active region (not in greyed-out trim area)
     const activeStart = clip.startTime + clip.trimStart
     const activeEnd = clip.startTime + clip.trimEnd
     return timeline.playheadPosition > activeStart && timeline.playheadPosition < activeEnd

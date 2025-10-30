@@ -388,14 +388,28 @@ function App() {
       }
       
       // Find clip under playhead in active region
+      // Note: playheadTime is the visual position on timeline (based on full durations)
+      // We need to find which clip contains this position and check if it's in the active region
       for (const track of newTimeline.tracks) {
         for (let i = 0; i < track.clips.length; i++) {
           const originalTimelineClip = track.clips[i]
-          const activeStart = originalTimelineClip.startTime + originalTimelineClip.trimStart
-          const activeEnd = originalTimelineClip.startTime + originalTimelineClip.trimEnd
           
-          // Only split if playhead is in ACTIVE region
-          if (playheadTime > activeStart && playheadTime < activeEnd) {
+          // Calculate visual bounds of this clip on the timeline
+          const clipVisualStart = originalTimelineClip.startTime
+          const clipVisualEnd = originalTimelineClip.startTime + originalTimelineClip.clip.duration
+          
+          // Check if playhead is within this clip's visual bounds
+          if (playheadTime >= clipVisualStart && playheadTime < clipVisualEnd) {
+            // Now check if playhead is in the ACTIVE region (not in greyed-out trim area)
+            const activeStart = originalTimelineClip.startTime + originalTimelineClip.trimStart
+            const activeEnd = originalTimelineClip.startTime + originalTimelineClip.trimEnd
+            
+            if (playheadTime <= activeStart || playheadTime >= activeEnd) {
+              // Playhead is in trim region (greyed out area), can't split here
+              console.log('Cannot split: playhead is in trimmed region')
+              return prevTimeline
+            }
+            
             // Calculate split point in original video time
             // For split clips, we need to use their videoOffsetStart instead of trimStart
             const clipOffsetStart = originalTimelineClip.clip.videoOffsetStart !== undefined 
