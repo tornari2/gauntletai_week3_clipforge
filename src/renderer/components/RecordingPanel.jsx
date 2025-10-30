@@ -148,13 +148,6 @@ const RecordingPanel = ({ onRecordingComplete }) => {
     <div className="recording-panel">
       <div className="recording-panel-header">
         <h3>🎥 Recording</h3>
-        <button 
-          className="btn btn-sm btn-secondary"
-          onClick={loadSources}
-          title="Refresh sources"
-        >
-          🔄
-        </button>
       </div>
       
         <div className="recording-panel-content">

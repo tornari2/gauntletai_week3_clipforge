@@ -10,7 +10,6 @@ const HorizontalTimeline = ({
   onTimelineClipDelete, 
   onClipTrim,
   onClipReposition,
-  onClipSplitAtCenter,
   onClipSplitAtPlayhead,
   onPlayheadMove,
   onZoomIn,
@@ -27,6 +26,7 @@ const HorizontalTimeline = ({
   const [snapIndicator, setSnapIndicator] = useState(null)
   
   const timelineRef = useRef(null)
+  const scrollContainerRef = useRef(null)
   const animationFrameRef = useRef(null)
   const containerWidthRef = useRef(800)
   const [, forceUpdate] = useState({}) // Force re-render when needed
@@ -67,6 +67,48 @@ const HorizontalTimeline = ({
     const secs = Math.floor(seconds % 60)
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
+
+  // Calculate visual playhead position on timeline
+  // Converts playback time (sum of active durations) to visual position
+  const calculateVisualPlayheadPosition = () => {
+    if (!timeline || !timeline.playheadPosition || !timeline.tracks) {
+      return null
+    }
+    
+    const mainTrack = timeline.tracks.find(t => t.id === 1)
+    if (!mainTrack || !mainTrack.clips || mainTrack.clips.length === 0) {
+      return null
+    }
+    
+    const playheadTime = timeline.playheadPosition
+    let accumulatedActiveDuration = 0
+    
+    // Find which clip we're in based on accumulated active durations
+    for (let i = 0; i < mainTrack.clips.length; i++) {
+      const clip = mainTrack.clips[i]
+      const clipActiveDuration = clip.trimEnd - clip.trimStart
+      
+      if (playheadTime <= accumulatedActiveDuration + clipActiveDuration) {
+        // We're in this clip
+        const timeInClip = playheadTime - accumulatedActiveDuration
+        // Visual position = clip's visual start + trim start + progress in active region
+        const visualPosition = clip.startTime + clip.trimStart + timeInClip
+        return visualPosition
+      }
+      
+      accumulatedActiveDuration += clipActiveDuration
+    }
+    
+    // If we're past all clips, position at the end
+    const lastClip = mainTrack.clips[mainTrack.clips.length - 1]
+    if (lastClip) {
+      return lastClip.startTime + lastClip.trimEnd
+    }
+    
+    return null
+  }
+
+  const visualPlayheadPosition = calculateVisualPlayheadPosition()
 
   // Find snap point for magnetic snapping
   const findSnapPoint = (targetTime, excludeClipId = null) => {
@@ -381,8 +423,6 @@ const HorizontalTimeline = ({
     
     if (action === 'delete' && onTimelineClipDelete) {
       onTimelineClipDelete(contextMenu.trackId, contextMenu.clip)
-    } else if (action === 'split-center' && onClipSplitAtCenter) {
-      onClipSplitAtCenter(contextMenu.trackId, contextMenu.clip.clipId)
     } else if (action === 'split-playhead' && onClipSplitAtPlayhead) {
       onClipSplitAtPlayhead()
     }
@@ -445,6 +485,62 @@ const HorizontalTimeline = ({
     return timeline.playheadPosition > activeStart && timeline.playheadPosition < activeEnd
   }
 
+  // Handle zoom with playhead-centered behavior
+  const handleZoomWithPlayhead = (zoomFn) => {
+    if (!scrollContainerRef.current || visualPlayheadPosition === null) {
+      // No playhead or scroll container, just zoom normally
+      zoomFn()
+      return
+    }
+
+    const scrollContainer = scrollContainerRef.current
+    const oldZoomLevel = timeline.zoomLevel || 1.0
+    
+    // Calculate OLD pixels per second (before zoom)
+    const oldBasePixelsPerSecond = timeline.duration > 0 
+      ? containerWidthRef.current / timeline.duration 
+      : BASE_PIXELS_PER_SECOND
+    const oldPixelsPerSecond = Math.max(0.1, oldBasePixelsPerSecond * oldZoomLevel)
+    
+    // Calculate playhead position in pixels before zoom (add 92px for track label offset)
+    const oldPlayheadPixelPos = visualPlayheadPosition * oldPixelsPerSecond + 92
+    const oldScrollLeft = scrollContainer.scrollLeft
+    const playheadOffsetFromLeft = oldPlayheadPixelPos - oldScrollLeft
+
+    // Apply zoom
+    zoomFn()
+
+    // Wait for next frame to recalculate after state update
+    requestAnimationFrame(() => {
+      const newZoomLevel = timeline.zoomLevel || 1.0
+      
+      // Calculate NEW pixels per second (after zoom)
+      const newBasePixelsPerSecond = timeline.duration > 0 
+        ? containerWidthRef.current / timeline.duration 
+        : BASE_PIXELS_PER_SECOND
+      const newPixelsPerSecond = Math.max(0.1, newBasePixelsPerSecond * newZoomLevel)
+      
+      // Calculate new playhead pixel position with new scale (add 92px offset)
+      const newPlayheadPixelPos = visualPlayheadPosition * newPixelsPerSecond + 92
+      
+      // Adjust scroll to keep playhead in same visual position on screen
+      const newScrollLeft = newPlayheadPixelPos - playheadOffsetFromLeft
+      scrollContainer.scrollLeft = Math.max(0, newScrollLeft)
+    })
+  }
+
+  const handleZoomInClick = () => {
+    handleZoomWithPlayhead(onZoomIn)
+  }
+
+  const handleZoomOutClick = () => {
+    handleZoomWithPlayhead(onZoomOut)
+  }
+
+  const handleZoomResetClick = () => {
+    handleZoomWithPlayhead(onZoomReset)
+  }
+
   return (
     <div className="horizontal-timeline">
       <div className="timeline-header">
@@ -455,21 +551,21 @@ const HorizontalTimeline = ({
           </div>
           {timeline.duration > 0 && (
             <div className="zoom-controls">
-              <button className="btn-zoom" onClick={onZoomOut} title="Zoom Out">-</button>
+              <button className="btn-zoom" onClick={handleZoomOutClick} title="Zoom Out">-</button>
               <span 
                 className="zoom-level" 
-                onClick={onZoomReset}
+                onClick={handleZoomResetClick}
                 title="Click to reset to 100%"
               >
                 {Math.round((timeline.zoomLevel || 1.0) * 100)}%
               </span>
-              <button className="btn-zoom" onClick={onZoomIn} title="Zoom In">+</button>
+              <button className="btn-zoom" onClick={handleZoomInClick} title="Zoom In">+</button>
             </div>
           )}
         </div>
       </div>
       
-      <div className="timeline-scroll-container">
+      <div className="timeline-scroll-container" ref={scrollContainerRef}>
         <div 
           className="timeline-container" 
           ref={timelineRef}
@@ -508,6 +604,17 @@ const HorizontalTimeline = ({
               className="timeline-snap-indicator" 
               style={{ left: (snapIndicator.time * pixelsPerSecond) + 'px' }}
             />
+          )}
+          
+          {/* Playhead Indicator */}
+          {timeline.duration > 0 && visualPlayheadPosition !== null && (
+            <div 
+              className="timeline-playhead" 
+              style={{ left: (visualPlayheadPosition * pixelsPerSecond + 92) + 'px' }}
+            >
+              <div className="playhead-handle" />
+              <div className="playhead-line" />
+            </div>
           )}
           
           {/* Tracks */}
@@ -661,12 +768,6 @@ const HorizontalTimeline = ({
             top: contextMenu.y + 'px'
           }}
         >
-          <div
-            className="context-menu-item"
-            onClick={() => handleContextMenuAction('split-center')}
-          >
-            Split at center
-          </div>
           {isPlayheadOverClip(contextMenu.clip) && (
             <div
               className="context-menu-item"

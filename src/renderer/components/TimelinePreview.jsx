@@ -354,6 +354,24 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     }
   }, [currentClip, currentClipIndex, clips, totalDuration])
 
+  // Keyboard shortcut for spacebar play/pause
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      // Only trigger if not typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return
+      }
+      
+      if (e.code === 'Space' || e.key === ' ') {
+        e.preventDefault() // Prevent page scroll
+        togglePlayPause()
+      }
+    }
+    
+    window.addEventListener('keydown', handleKeyPress)
+    return () => window.removeEventListener('keydown', handleKeyPress)
+  }, [isPlaying, currentTime, totalDuration, currentClip])
+
   const togglePlayPause = () => {
     const video = videoRef.current
     if (!video || !currentClip) return

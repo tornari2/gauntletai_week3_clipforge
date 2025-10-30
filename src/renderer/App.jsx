@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import MediaLibrary from './components/MediaLibrary'
 import VideoPlayer from './components/VideoPlayer'
 import TimelinePreview from './components/TimelinePreview'
-import TrimControls from './components/TrimControls'
 import ExportButton from './components/ExportButton'
 import RecordingPanel from './components/RecordingPanel'
 import HorizontalTimeline from './components/HorizontalTimeline'
@@ -355,7 +354,7 @@ function App() {
     }))
   }
 
-  // Zoom controls
+  // Zoom controls with playhead-centered zooming
   const handleZoomIn = () => {
     setTimeline(prev => ({
       ...prev,
@@ -398,16 +397,24 @@ function App() {
           // Only split if playhead is in ACTIVE region
           if (playheadTime > activeStart && playheadTime < activeEnd) {
             // Calculate split point in original video time
-            const splitTimeInOriginal = originalTimelineClip.trimStart + (playheadTime - originalTimelineClip.startTime)
+            // For split clips, we need to use their videoOffsetStart instead of trimStart
+            const clipOffsetStart = originalTimelineClip.clip.videoOffsetStart !== undefined 
+              ? originalTimelineClip.clip.videoOffsetStart 
+              : originalTimelineClip.trimStart
+            const clipOffsetEnd = originalTimelineClip.clip.videoOffsetEnd !== undefined 
+              ? originalTimelineClip.clip.videoOffsetEnd 
+              : originalTimelineClip.trimEnd
+            
+            const splitTimeInOriginal = clipOffsetStart + (playheadTime - originalTimelineClip.startTime)
             
             console.log('Splitting clip at playhead:')
             console.log('  Playhead time:', playheadTime)
-            console.log('  Original clip trimStart:', originalTimelineClip.trimStart, 'trimEnd:', originalTimelineClip.trimEnd)
+            console.log('  Clip offsetStart:', clipOffsetStart, 'offsetEnd:', clipOffsetEnd)
             console.log('  Split time in original video:', splitTimeInOriginal)
             
             // Create two NEW independent clip objects (not just timeline clips)
-            const clip1Duration = splitTimeInOriginal - originalTimelineClip.trimStart
-            const clip2Duration = originalTimelineClip.trimEnd - splitTimeInOriginal
+            const clip1Duration = splitTimeInOriginal - clipOffsetStart
+            const clip2Duration = clipOffsetEnd - splitTimeInOriginal
             
             // New clip 1: represents first half of the split
             const newClip1 = {
@@ -417,10 +424,10 @@ function App() {
               filePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
               originalFilePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
               originalDuration: originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration,
-              videoOffsetStart: originalTimelineClip.trimStart, // Where in original video this clip starts
+              videoOffsetStart: clipOffsetStart, // Where in original video this clip starts
               videoOffsetEnd: splitTimeInOriginal, // Where in original video this clip ends
               isSplitClip: true,
-              splitSource: originalTimelineClip.clip.id,
+              splitSource: originalTimelineClip.clip.splitSource || originalTimelineClip.clip.id,
               trimStart: 0, // Use full clip duration
               trimEnd: clip1Duration // Use full clip duration
             }
@@ -434,9 +441,9 @@ function App() {
               originalFilePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
               originalDuration: originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration,
               videoOffsetStart: splitTimeInOriginal, // Where in original video this clip starts
-              videoOffsetEnd: originalTimelineClip.trimEnd, // Where in original video this clip ends
+              videoOffsetEnd: clipOffsetEnd, // Where in original video this clip ends
               isSplitClip: true,
-              splitSource: originalTimelineClip.clip.id,
+              splitSource: originalTimelineClip.clip.splitSource || originalTimelineClip.clip.id,
               trimStart: 0, // Use full clip duration
               trimEnd: clip2Duration // Use full clip duration
             }
@@ -482,107 +489,6 @@ function App() {
       }
       
       return prevTimeline
-    })
-  }
-
-  // Split clip at center of active region
-  const handleClipSplitAtCenter = (trackId, clipId) => {
-    setTimeline(prevTimeline => {
-      // Deep copy the timeline to avoid mutation
-      const newTimeline = {
-        ...prevTimeline,
-        tracks: prevTimeline.tracks.map(t => ({ ...t, clips: [...t.clips] }))
-      }
-      const track = newTimeline.tracks.find(t => t.id === trackId)
-      
-      if (track) {
-        const clipIndex = track.clips.findIndex(c => c.clipId === clipId)
-        if (clipIndex >= 0) {
-          const originalTimelineClip = track.clips[clipIndex]
-          
-          // Calculate center of active region in the original video time
-          const activeDuration = originalTimelineClip.trimEnd - originalTimelineClip.trimStart
-          const splitTimeInOriginal = originalTimelineClip.trimStart + (activeDuration / 2)
-          
-          console.log('Splitting clip at center:')
-          console.log('  Original clip trimStart:', originalTimelineClip.trimStart, 'trimEnd:', originalTimelineClip.trimEnd)
-          console.log('  Active duration:', activeDuration)
-          console.log('  Split time in original video:', splitTimeInOriginal)
-          
-          // Create two NEW independent clip objects (not just timeline clips)
-          const clip1Duration = splitTimeInOriginal - originalTimelineClip.trimStart
-          const clip2Duration = originalTimelineClip.trimEnd - splitTimeInOriginal
-          
-          // New clip 1: represents first half of the split
-          const newClip1 = {
-            ...originalTimelineClip.clip,
-            id: Date.now(),
-            duration: clip1Duration, // NEW: Set duration to only this portion
-            filePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
-            originalFilePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
-            originalDuration: originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration,
-            videoOffsetStart: originalTimelineClip.trimStart, // Where in original video this clip starts
-            videoOffsetEnd: splitTimeInOriginal, // Where in original video this clip ends
-            isSplitClip: true,
-            splitSource: originalTimelineClip.clip.id,
-            trimStart: 0, // Use full clip duration
-            trimEnd: clip1Duration // Use full clip duration
-          }
-          
-          // New clip 2: represents second half of the split
-          const newClip2 = {
-            ...originalTimelineClip.clip,
-            id: Date.now() + 1,
-            duration: clip2Duration, // NEW: Set duration to only this portion
-            filePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
-            originalFilePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
-            originalDuration: originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration,
-            videoOffsetStart: splitTimeInOriginal, // Where in original video this clip starts
-            videoOffsetEnd: originalTimelineClip.trimEnd, // Where in original video this clip ends
-            isSplitClip: true,
-            splitSource: originalTimelineClip.clip.id,
-            trimStart: 0, // Use full clip duration
-            trimEnd: clip2Duration // Use full clip duration
-          }
-          
-          // Clip 1: First half - uses full duration with no trim
-          const timelineClip1 = {
-            clipId: newClip1.id,
-            startTime: 0, // Will be repositioned
-            trimStart: 0, // Use full clip
-            trimEnd: clip1Duration, // Use full clip
-            clip: newClip1 // Reference to new clip object
-          }
-          
-          // Clip 2: Second half - uses full duration with no trim
-          const timelineClip2 = {
-            clipId: newClip2.id,
-            startTime: 0, // Will be repositioned
-            trimStart: 0, // Use full clip
-            trimEnd: clip2Duration, // Use full clip
-            clip: newClip2 // Reference to new clip object
-          }
-          
-          console.log('  Clip 1 duration:', clip1Duration, 'trim:', timelineClip1.trimStart, 'to', timelineClip1.trimEnd)
-          console.log('  Clip 2 duration:', clip2Duration, 'trim:', timelineClip2.trimStart, 'to', timelineClip2.trimEnd)
-          
-          // Replace original clip with two split clips
-          track.clips[clipIndex] = timelineClip1
-          track.clips.splice(clipIndex + 1, 0, timelineClip2)
-          
-          // Reposition all clips in track end-to-end
-          track.clips = repositionClipsInTrack(track.clips)
-          
-          // Recalculate timeline duration
-          newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
-          
-          // Clear selection after split - clips should go back to blue
-          setSelectedClip(null)
-          setEditableClip(null)
-        }
-      }
-      
-      return newTimeline
     })
   }
 
@@ -759,7 +665,6 @@ function App() {
                 onTimelineClipDelete={handleTimelineClipDelete}
                 onClipTrim={handleTimelineClipTrim}
                 onClipReposition={handleClipReposition}
-                onClipSplitAtCenter={handleClipSplitAtCenter}
                 onClipSplitAtPlayhead={handleClipSplitAtPlayhead}
                 onPlayheadMove={handlePlayheadMove}
                 onZoomIn={handleZoomIn}
@@ -771,10 +676,6 @@ function App() {
             
             <div className="controls-section">
               <RecordingPanel onRecordingComplete={handleRecordingComplete} />
-              <TrimControls 
-                selectedClip={editableClip} 
-                onTrimUpdate={handleTrimUpdate}
-              />
               <ExportButton selectedClip={editableClip} timeline={timeline} />
             </div>
           </div>
