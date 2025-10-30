@@ -13,6 +13,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
   const shouldPlayRef = useRef(false) // Track if we should be playing during transitions
   const animationFrameRef = useRef(null) // For throttling playhead updates
   const currentTimeRef = useRef(0) // Track current time without causing re-renders
+  const lastPlayheadPositionRef = useRef(null) // Track last playhead position to avoid unnecessary updates
 
   // Get clips from main track and calculate timeline info
   useEffect(() => {
@@ -33,13 +34,17 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       // Start at the beginning (relative to timeline)
       setCurrentTime(0)
       currentTimeRef.current = 0
+      lastPlayheadPositionRef.current = null // Reset last position
       
       // Set initial playhead position to first clip's startTime (usually 0)
       // This sets the visual position on the timeline
       if (onPlayheadMove && timelineClips[0]) {
         const initialPosition = timelineClips[0].startTime
         // Use setTimeout to avoid triggering during render
-        setTimeout(() => onPlayheadMove(initialPosition), 0)
+        setTimeout(() => {
+          onPlayheadMove(initialPosition)
+          lastPlayheadPositionRef.current = initialPosition
+        }, 0)
       }
     }
   }, [timeline])
@@ -132,14 +137,6 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         const firstClipStartTime = clips[0]?.startTime || 0
         const playheadPosition = firstClipStartTime + timelineTime
         
-        console.log('Playhead update:', {
-          firstClipStartTime,
-          timelineTime,
-          playheadPosition,
-          onPlayheadMove: !!onPlayheadMove,
-          pendingRAF: animationFrameRef.current !== null
-        })
-        
         // Update progress bar DOM directly (no re-render)
         if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
           const progress = (timelineTime / totalDuration) * 100
@@ -152,14 +149,14 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
           timeDisplayRef.current.textContent = `${formatTime(timelineTime)} / ${formatTime(totalDuration)}`
         }
         
-        // Throttle playhead updates using requestAnimationFrame
-        // Only schedule if there isn't one already pending
-        if (animationFrameRef.current === null && onPlayheadMove) {
-          const positionToUpdate = playheadPosition // Capture current value
-          animationFrameRef.current = requestAnimationFrame(() => {
-            onPlayheadMove(positionToUpdate)
-            animationFrameRef.current = null
-          })
+        // Update playhead position directly (only if changed significantly to avoid excessive updates)
+        if (onPlayheadMove) {
+          const lastPosition = lastPlayheadPositionRef.current
+          // Only update if position changed by at least 0.05 seconds (~50ms) for smooth but efficient updates
+          if (lastPosition === null || Math.abs(playheadPosition - lastPosition) > 0.05) {
+            onPlayheadMove(playheadPosition)
+            lastPlayheadPositionRef.current = playheadPosition
+          }
         }
       }
     }
