@@ -23,18 +23,26 @@ const MediaLibrary = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideo
 
   // Listen for dropped video events from main process
   React.useEffect(() => {
-    if (window.electronAPI && window.electronAPI.onVideoDropped) {
-      window.electronAPI.onVideoDropped((videoData) => {
-        console.log('MediaLibrary: Received dropped video from main process:', videoData)
-        onVideoImported(videoData)
-      })
+    if (!window.electronAPI) return
+    
+    const handleVideoDropped = (videoData) => {
+      console.log('MediaLibrary: Received dropped video from main process:', videoData)
+      onVideoImported(videoData)
     }
     
-    if (window.electronAPI && window.electronAPI.onVideoDropError) {
-      window.electronAPI.onVideoDropError((error) => {
-        console.error('MediaLibrary: Video drop error:', error)
-        alert(`Failed to import video: ${error}`)
-      })
+    const handleVideoDropError = (error) => {
+      console.error('MediaLibrary: Video drop error:', error)
+      alert(`Failed to import video: ${error}`)
+    }
+    
+    // Get cleanup functions
+    const cleanupDropped = window.electronAPI.onVideoDropped?.(handleVideoDropped)
+    const cleanupError = window.electronAPI.onVideoDropError?.(handleVideoDropError)
+    
+    // Cleanup: remove listeners
+    return () => {
+      cleanupDropped?.()
+      cleanupError?.()
     }
   }, [onVideoImported])
 

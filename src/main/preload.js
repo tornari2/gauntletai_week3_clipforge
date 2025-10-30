@@ -16,12 +16,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Listen for dropped video events
   onVideoDropped: (callback) => {
-    ipcRenderer.on('video-dropped', (event, videoData) => callback(videoData))
+    const handler = (event, videoData) => callback(videoData)
+    ipcRenderer.on('video-dropped', handler)
+    // Return cleanup function
+    return () => {
+      ipcRenderer.removeListener('video-dropped', handler)
+    }
   },
   
   // Listen for dropped video errors
   onVideoDropError: (callback) => {
-    ipcRenderer.on('video-drop-error', (event, error) => callback(error))
+    const handler = (event, error) => callback(error)
+    ipcRenderer.on('video-drop-error', handler)
+    // Return cleanup function
+    return () => {
+      ipcRenderer.removeListener('video-drop-error', handler)
+    }
   },
   
   // File dialogs

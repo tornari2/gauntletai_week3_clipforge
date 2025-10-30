@@ -152,8 +152,9 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         // Update playhead position directly (only if changed significantly to avoid excessive updates)
         if (onPlayheadMove) {
           const lastPosition = lastPlayheadPositionRef.current
-          // Only update if position changed by at least 0.05 seconds (~50ms) for smooth but efficient updates
-          if (lastPosition === null || Math.abs(playheadPosition - lastPosition) > 0.05) {
+          // Only update if position changed by at least 0.02 seconds (~20ms) for smooth updates
+          // This matches roughly 50fps which is smooth enough for UI
+          if (lastPosition === null || Math.abs(playheadPosition - lastPosition) > 0.02) {
             onPlayheadMove(playheadPosition)
             lastPlayheadPositionRef.current = playheadPosition
           }
