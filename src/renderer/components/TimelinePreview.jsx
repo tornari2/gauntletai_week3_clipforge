@@ -30,12 +30,13 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     // Reset to first clip when timeline changes
     if (timelineClips.length > 0) {
       setCurrentClipIndex(0)
-      // Start at the beginning of the first clip's position on the timeline
-      const firstClipStartTime = timelineClips[0].startTime
+      // Start at the beginning (relative to timeline)
       setCurrentTime(0)
       currentTimeRef.current = 0
       
       // Update playhead to the first clip's start position on the timeline
+      // The playhead position should be the clip's startTime (absolute position on timeline)
+      const firstClipStartTime = timelineClips[0].startTime
       if (onPlayheadMove) {
         onPlayheadMove(firstClipStartTime)
       }
@@ -142,12 +143,12 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
           timeDisplayRef.current.textContent = `${formatTime(timelineTime)} / ${formatTime(totalDuration)}`
         }
         
-        // Throttle playhead and state updates using requestAnimationFrame
-        if (animationFrameRef.current === null) {
+        // Throttle playhead updates using requestAnimationFrame
+        // Only schedule if there isn't one already pending
+        if (animationFrameRef.current === null && onPlayheadMove) {
+          const positionToUpdate = playheadPosition // Capture current value
           animationFrameRef.current = requestAnimationFrame(() => {
-            if (onPlayheadMove) {
-              onPlayheadMove(playheadPosition)
-            }
+            onPlayheadMove(positionToUpdate)
             animationFrameRef.current = null
           })
         }
