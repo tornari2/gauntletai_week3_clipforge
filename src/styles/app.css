@@ -1553,10 +1553,14 @@ body {
   top: 4px;
   height: 52px;
   border-radius: 4px;
-  cursor: move;
+  cursor: grab;
   overflow: hidden;
   user-select: none;
-  transition: opacity 0.2s ease;
+  transition: transform 0.1s ease, opacity 0.1s ease;
+}
+
+.timeline-clip-bar:active {
+  cursor: grabbing;
 }
 
 .timeline-clip-bar.selected {
@@ -1565,8 +1569,11 @@ body {
 }
 
 .timeline-clip-bar.dragging {
-  opacity: 0.6;
+  opacity: 0.7;
   z-index: 50;
+  cursor: grabbing;
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 /* Trim Overlays */

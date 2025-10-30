@@ -193,10 +193,12 @@ const HorizontalTimeline = ({
     const deltaX = Math.abs(e.clientX - clipDragData.startX)
     const deltaY = Math.abs(e.clientY - clipDragData.startY)
     
-    // Start dragging after 3px movement threshold
-    if (!clipDragData.moved && (deltaX > 3 || deltaY > 3)) {
+    // Start dragging after 5px movement threshold (more forgiving)
+    if (!clipDragData.moved && (deltaX > 5 || deltaY > 5)) {
       setIsDraggingClip(true)
       setClipDragData({ ...clipDragData, moved: true })
+      // Change cursor to grabbing
+      document.body.style.cursor = 'grabbing'
     }
     
     if (isDraggingClip && timelineRef.current) {
@@ -243,7 +245,6 @@ const HorizontalTimeline = ({
       // Calculate target index in track
       const targetTrack = timeline.tracks.find(t => t.id === targetTrackId)
       if (targetTrack) {
-        // Find where to insert based on the center of where we're dropping
         let targetIndex = 0
         
         // If dropping in the same track as dragging from, need to handle carefully
@@ -251,23 +252,43 @@ const HorizontalTimeline = ({
           // Find current index of dragged clip
           const currentIndex = targetTrack.clips.findIndex(c => c.clipId === clipDragData.clip.clipId)
           
-          // Calculate target index based on drop position
-          // We compare against ALL clips including the dragged one, then adjust
+          // Check if dropping directly over another clip (for easy swapping)
+          let droppedOverClipIndex = -1
           for (let i = 0; i < targetTrack.clips.length; i++) {
-            const clip = targetTrack.clips[i]
-            const clipCenter = clip.startTime + (clip.trimEnd - clip.trimStart) / 2
+            if (i === currentIndex) continue // Skip the dragged clip itself
             
-            if (snappedTime > clipCenter) {
-              targetIndex = i + 1
+            const clip = targetTrack.clips[i]
+            const clipStart = clip.startTime
+            const clipEnd = clip.startTime + clip.clip.duration
+            
+            // If drop position is anywhere over this clip, we want to swap with it
+            if (snappedTime >= clipStart && snappedTime <= clipEnd) {
+              droppedOverClipIndex = i
+              break
             }
           }
           
-          // The targetIndex is calculated as if the dragged clip isn't there
-          // But it IS there, so we need to adjust
-          // If we're inserting AFTER where we currently are, we need to decrease by 1
-          // because the clip will be removed first
-          if (targetIndex > currentIndex) {
-            targetIndex = targetIndex - 1
+          if (droppedOverClipIndex !== -1) {
+            // Dropping over another clip - swap positions
+            // Simple swap: just take the target clip's index
+            // The array removal + insertion naturally handles the swap
+            targetIndex = droppedOverClipIndex
+          } else {
+            // Not dropping over a clip - use edge-based positioning
+            // Find position based on which clips the drop is after
+            for (let i = 0; i < targetTrack.clips.length; i++) {
+              const clip = targetTrack.clips[i]
+              const clipEnd = clip.startTime + clip.clip.duration
+              
+              if (snappedTime > clipEnd) {
+                targetIndex = i + 1
+              }
+            }
+            
+            // Adjust for removal
+            if (targetIndex > currentIndex) {
+              targetIndex = targetIndex - 1
+            }
           }
           
           // If target index equals current index, don't reposition (no change needed)
@@ -283,13 +304,32 @@ const HorizontalTimeline = ({
             return
           }
         } else {
-          // Moving to different track - simpler logic
+          // Moving to different track - check if dropping over a clip
+          let droppedOverClipIndex = -1
           for (let i = 0; i < targetTrack.clips.length; i++) {
             const clip = targetTrack.clips[i]
-            const clipCenter = clip.startTime + (clip.trimEnd - clip.trimStart) / 2
+            const clipStart = clip.startTime
+            const clipEnd = clip.startTime + clip.clip.duration
             
-            if (snappedTime > clipCenter) {
-              targetIndex = i + 1
+            // If drop position is anywhere over this clip
+            if (snappedTime >= clipStart && snappedTime <= clipEnd) {
+              droppedOverClipIndex = i
+              break
+            }
+          }
+          
+          if (droppedOverClipIndex !== -1) {
+            // Insert at the position of the clip we're over
+            targetIndex = droppedOverClipIndex
+          } else {
+            // Not over a clip - use edge-based positioning
+            for (let i = 0; i < targetTrack.clips.length; i++) {
+              const clip = targetTrack.clips[i]
+              const clipEnd = clip.startTime + clip.clip.duration
+              
+              if (snappedTime > clipEnd) {
+                targetIndex = i + 1
+              }
             }
           }
         }
@@ -317,6 +357,8 @@ const HorizontalTimeline = ({
       }
     }
     
+    // Reset cursor
+    document.body.style.cursor = ''
     setIsDraggingClip(false)
     setClipDragData(null)
   }
