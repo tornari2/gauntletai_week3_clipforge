@@ -1,345 +1,624 @@
-# ClipForge MVP
+# ClipEdit
 
-A modern desktop video editor built with Electron, React, and FFmpeg for professional video trimming and export functionality.
+A modern desktop video editor built with Electron, React, and FFmpeg for professional video editing with advanced timeline management, clip splitting, trimming, and export functionality.
 
 ## 🎬 Current Project Status
 
-**Version**: 1.0.0  
+**Version**: 2.0.0  
 **Status**: Production Ready ✅  
 **Last Updated**: October 2024  
 
-### ✅ Completed Features
+### ✨ Key Features
 
-- **Video Import**: Import MP4, MOV, and WebM video files via file picker or drag-and-drop
-- **Interactive Timeline**: Visual timeline with drag-and-drop clip management
-- **Advanced Trim Controls**: 
-  - Click-to-select timeline clips
-  - Visual trim handles (left/right)
-  - Persistent trim values
-  - Real-time visual feedback
-- **Video Preview**: HTML5 video player with play/pause and seek controls
-- **Screen Recording**: Built-in screen and webcam recording capabilities
-- **Video Export**: Export trimmed videos as MP4 with H.264 video and AAC audio codecs
-- **Modern UI**: Dark theme with responsive design
+#### Core Video Editing
+- **Advanced Timeline System**: Horizontal timeline with visual playhead overlay showing current position
+- **Multi-Clip Support**: Stitch together multiple videos (MP4, MOV, WebM) seamlessly
+- **Clip Splitting**: Split clips at playhead position (supports recursive splitting)
+- **Precision Trimming**: Visual trim handles with real-time preview
+- **Drag & Drop Reordering**: Easily swap and rearrange clips on timeline
+- **Timeline Preview**: Full timeline playback with seamless transitions between clips
 
-### 🔧 Recent Improvements (v1.0.0)
+#### Playback & Navigation
+- **Spacebar Play/Pause**: Quick keyboard control for video playback
+- **Playhead-Centered Zoom**: Zoom in/out while keeping playhead in view
+- **Visual Playhead Indicator**: Red line shows exact playback position on timeline
+- **Smart Playhead Behavior**: Automatically skips trimmed regions during playback
 
-- **Fixed Trim Persistence**: Trim values now persist when clicking away and returning to clips
-- **Improved Timeline UX**: Trim handles only appear when clips are selected (not on hover)
-- **Visual Trim Feedback**: Left trim handle properly shrinks blue bar from left side
-- **Synchronized Controls**: Trim controls and timeline are now fully synchronized
-- **Export Accuracy**: Export now uses correct trimmed portions, not full videos
+#### Import & Recording
+- **File Import**: Import videos via file picker (drag-and-drop from file system not supported due to Electron security restrictions)
+- **Screen Recording**: Built-in screen capture with audio support
+- **Multiple Format Support**: MP4, MOV, and WebM files
+
+#### Export
+- **Multi-Resolution Export**: Original, 4K, 1080p, 720p, 480p, 360p
+- **Format Support**: Export to MP4 with H.264 video and AAC audio
+- **Progress Tracking**: Real-time export progress feedback
+
+#### User Experience
+- **Modern Dark UI**: Professional dark theme interface
+- **No Overlap Guarantee**: Clips positioned using full duration to prevent visual overlap
+- **Context Menus**: Right-click clips for quick actions
+- **Magnetic Snapping**: Clips snap to edges when repositioning
 
 ## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        ClipForge Desktop App                    │
+│                        ClipEdit Desktop App                     │
 ├─────────────────────────────────────────────────────────────────┤
 │  Electron Main Process (Node.js)                               │
-│  ├── main.js - App lifecycle, window management                │
-│  ├── preload.js - Secure IPC bridge                            │
-│  └── FFmpeg Integration - Video processing                     │
+│  ├── main.js - App lifecycle, IPC handlers, FFmpeg integration │
+│  │   ├── Video import/export handlers                          │
+│  │   ├── Screen recording source enumeration                   │
+│  │   ├── File system operations                                │
+│  │   └── FFmpeg command construction                           │
+│  └── preload.js - Secure IPC bridge (contextBridge)            │
 ├─────────────────────────────────────────────────────────────────┤
 │  Renderer Process (React + Vite)                               │
-│  ├── App.jsx - Main application state                          │
+│  ├── App.jsx - Main application state & logic                  │
+│  │   ├── Clip management (import, split, trim, delete)        │
+│  │   ├── Timeline state (tracks, duration, playhead, zoom)    │
+│  │   ├── Clip positioning (full duration, no overlap)         │
+│  │   └── Split/trim/reposition handlers                        │
 │  ├── Components/                                               │
-│  │   ├── MediaLibrary.jsx - Video import/management            │
-│  │   ├── VideoPlayer.jsx - HTML5 video preview                 │
-│  │   ├── HorizontalTimeline.jsx - Timeline with trim handles   │
-│  │   ├── TrimControls.jsx - Trim input controls                │
+│  │   ├── MediaLibrary.jsx - Video import & library management  │
+│  │   ├── VideoPlayer.jsx - Single clip preview                 │
+│  │   ├── TimelinePreview.jsx - Multi-clip timeline playback    │
+│  │   │   ├── Seamless clip transitions                         │
+│  │   │   ├── Playhead position tracking                        │
+│  │   │   └── Spacebar play/pause control                       │
+│  │   ├── HorizontalTimeline.jsx - Visual timeline editor       │
+│  │   │   ├── Playhead overlay with skip behavior              │
+│  │   │   ├── Clip drag/drop/reordering                         │
+│  │   │   ├── Trim handles (left/right)                         │
+│  │   │   ├── Zoom controls (playhead-centered)                 │
+│  │   │   ├── Context menu (split/delete)                       │
+│  │   │   └── Magnetic snapping                                 │
 │  │   ├── RecordingPanel.jsx - Screen/webcam recording          │
-│  │   └── ExportButton.jsx - Video export functionality         │
-│  └── Styles/ - CSS with dark theme                             │
+│  │   │   ├── Source selection (screen/window/mic)             │
+│  │   │   ├── Recording controls                                │
+│  │   │   └── Auto-add to timeline                              │
+│  │   └── ExportButton.jsx - Multi-clip export with scaling     │
+│  │       ├── Resolution selection                              │
+│  │       ├── Split clip support (videoOffset handling)        │
+│  │       └── Progress tracking                                 │
+│  └── Styles/ - app.css (1750+ lines) with dark theme           │
 ├─────────────────────────────────────────────────────────────────┤
 │  Native Dependencies                                            │
 │  ├── ffmpeg-static - Video processing engine                   │
 │  ├── ffprobe-static - Video metadata extraction                │
+│  ├── fluent-ffmpeg - FFmpeg JavaScript API                     │
 │  └── electron-builder - App packaging                          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+### Data Flow
+
+```
+Timeline State (full duration positioning)
+  ↓
+App.jsx (clip management, split/trim logic)
+  ↓
+HorizontalTimeline (visual representation, user interaction)
+  ↓
+TimelinePreview (playback with active durations)
+  ↓
+Playhead Position (visual timeline position)
+  ↓
+ExportButton (FFmpeg filter complex with trim/concat/scale)
+```
+
+### Key Design Decisions
+
+1. **Full Duration Positioning**: Clips positioned using full video duration on timeline to prevent visual overlap of trim regions
+2. **Active Duration Playback**: Playback uses only active (non-trimmed) portions with seamless transitions
+3. **Split Clip Architecture**: Split clips track `videoOffsetStart/End` to reference original video correctly
+4. **Playhead-Centered Zoom**: Zoom recalculates pixels-per-second before/after to maintain visual position
+5. **Video-Only Concat**: FFmpeg filter uses video-only concat with optional audio mapping for compatibility
+
 ## 📋 System Requirements
 
 - **macOS**: 10.14 or later (Apple Silicon optimized)
-- **RAM**: 4GB minimum, 8GB recommended
-- **Storage**: 500MB free disk space
-- **Architecture**: ARM64 (M1/M2/M3 Macs)
+- **RAM**: 8GB minimum, 16GB recommended
+- **Storage**: 1GB free disk space
+- **Architecture**: ARM64 (M1/M2/M3/M4 Macs)
 
-## 🚀 Installation
+## 🚀 Getting Started
 
 ### For End Users
 
-**Option 1: Direct Download (Recommended)**
-1. Download `ClipForge-1.0.0-arm64.dmg` (205MB)
+**Installation:**
+1. Download the latest DMG from [Releases](https://github.com/tornari2/gauntletai_week3_clipedit/releases)
 2. Double-click the DMG file to mount it
-3. Drag ClipForge to your Applications folder
-4. Launch ClipForge from Applications or Spotlight
-5. If macOS shows security warning, go to System Preferences → Security & Privacy → Allow
+3. Drag ClipEdit to your Applications folder
+4. Launch ClipEdit from Applications
+5. Grant permissions when prompted:
+   - Screen Recording (for screen capture)
+   - Microphone (for audio recording)
 
-**Option 2: GitHub Releases**
-1. Go to [Releases](https://github.com/tornari2/gauntletai_week3_clipforge/releases)
-2. Download the latest DMG file
-3. Follow the same installation steps as Option 1
+**First Launch:**
+- If macOS shows security warning: System Preferences → Security & Privacy → Open Anyway
 
 ### For Developers
 
 **Prerequisites:**
-- Node.js 18+ 
+- Node.js 18+ (LTS recommended)
 - npm 9+
 - Git
+- macOS (for building macOS apps)
 
-**Setup Steps:**
+**Setup:**
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/tornari2/gauntletai_week3_clipforge.git
-   cd gauntletai_week3_clipforge
-   ```
+```bash
+# Clone the repository
+git clone https://github.com/tornari2/gauntletai_week3_clipedit.git
+cd gauntletai_week3_clipedit
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-   This installs:
-   - Electron 38+ (desktop framework)
-   - React 19+ (UI framework)
-   - Vite (build tool)
-   - FFmpeg binaries (video processing)
-   - All other dependencies
+# Install dependencies
+npm install
+```
 
-3. **Run in development mode:**
-   ```bash
-   npm run dev
-   ```
-   This starts:
-   - Vite dev server on `http://localhost:5173`
-   - Hot reload for React components
-   - Electron app with dev tools
+**Development:**
 
-4. **Alternative development command:**
-   ```bash
-   npm run electron-dev
-   ```
-   Runs both Vite and Electron concurrently
+```bash
+# Run in development mode (hot reload enabled)
+npm run dev
 
-5. **Build for production:**
-   ```bash
-   npm run build
-   ```
-   Creates optimized build in `dist/` and `dist-electron/`
+# Run Electron in development with Vite
+npm run electron-dev
 
-6. **Package for distribution:**
-   ```bash
-   npm run package:mac    # macOS DMG
-   npm run package:win    # Windows EXE
-   npm run package        # Current platform
-   ```
+# The dev script starts Vite on http://localhost:5173
+# Changes to React components will hot-reload automatically
+```
+
+**Building:**
+
+```bash
+# Build for production
+npm run build
+
+# Package for macOS (creates DMG in dist/ folder)
+npm run package:mac
+
+# Package for Windows (creates EXE - requires Windows or Wine)
+npm run package:win
+
+# Package for current platform
+npm run package
+```
+
+**Available Scripts:**
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start Vite dev server (React hot reload) |
+| `npm run electron-dev` | Run Vite + Electron concurrently |
+| `npm run build` | Build production bundles (dist/ and dist-electron/) |
+| `npm run package` | Package for current platform |
+| `npm run package:mac` | Create macOS DMG installer |
+| `npm run package:win` | Create Windows EXE installer |
 
 ## 📖 Usage Guide
 
 ### Basic Workflow
 
-1. **Import Video**: 
-   - Click "Choose Video File" button
-   - Or drag video files onto the media library area
-   - Supports MP4, MOV, and WebM formats
+1. **Import Videos**:
+   - Click "Choose Video File" button in Media Library
+   - Select MP4, MOV, or WebM files
+   - Videos appear in the media library with thumbnails
 
-2. **Add to Timeline**:
-   - Drag videos from media library to timeline
-   - Videos appear as blue bars on the timeline
-   - Multiple tracks available (Main, Overlay)
+2. **Build Timeline**:
+   - Drag clips from media library to timeline tracks
+   - Clips appear as colored bars (blue for normal, green when selected)
+   - Drag clips horizontally to reorder/swap positions
 
-3. **Select and Trim**:
-   - Click on a timeline clip to select it
-   - Trim handles appear on selected clips
-   - Drag left handle to trim from start
-   - Drag right handle to trim from end
-   - Or use trim controls panel for precise input
+3. **Trim Clips**:
+   - Click a clip on timeline to select it (turns green)
+   - Trim handles appear on left and right edges
+   - Drag handles to trim clip start/end
+   - Greyed-out regions show trimmed portions
 
-4. **Preview and Export**:
-   - Use video player to preview your edits
-   - Click "Export Video" when ready
-   - Choose save location and format
+4. **Split Clips**:
+   - Move playhead (red line) to desired position
+   - Right-click the clip under playhead
+   - Select "Split at playhead"
+   - Clip splits into two independent clips
+
+5. **Preview**:
+   - Press spacebar or click play button
+   - Playhead moves along timeline showing current position
+   - Playhead automatically skips trimmed regions
+   - Video transitions seamlessly between clips
+
+6. **Zoom Timeline**:
+   - Click +/- buttons or click percentage to reset
+   - Zoom centers on playhead position
+   - Scroll horizontally to navigate
+
+7. **Export**:
+   - Select resolution (Original, 1080p, 720p, etc.)
+   - Click "Export Video"
+   - Choose save location
+   - Wait for progress bar to complete
 
 ### Advanced Features
 
-- **Screen Recording**: Use the recording panel to capture screen or webcam
-- **Timeline Management**: Right-click clips for context menu options
-- **Visual Feedback**: Real-time updates as you trim videos
-- **Persistent Edits**: Trim values save when switching between clips
+#### Screen Recording
+1. Open Recording Panel
+2. Select screen/window source
+3. Select microphone (optional)
+4. Click "Start Recording"
+5. Recording auto-adds to timeline when stopped
 
-## 🔧 Troubleshooting
+#### Multi-Clip Editing
+- Add multiple clips to timeline
+- Clips play in sequence automatically
+- Reorder by dragging clips
+- Split any clip multiple times
+- Trim individual clips independently
 
-### Common Issues
+#### Keyboard Shortcuts
+- **Spacebar**: Play/Pause timeline preview
+- **S**: Split clip at playhead (when over active region)
+
+### Tips & Best Practices
+
+1. **Trimming**: Select clip first, then use handles for precise control
+2. **Splitting**: Position playhead carefully before splitting
+3. **Reordering**: Drag clips and drop anywhere over another clip to swap
+4. **Zooming**: Use zoom to see more detail when trimming precisely
+5. **Exporting**: Use "Original" resolution to maintain quality
+
+## ⚠️ Known Limitations
+
+### Drag-and-Drop Restriction
+**You cannot drag video files directly from Finder/File Explorer into the media library.** This is due to Electron security restrictions on file system access. 
+
+**Workaround**: Use the "Choose Video File" button to open the file picker dialog.
+
+### Other Limitations
+- Audio only exports from first clip (multi-clip audio concatenation not implemented)
+- No undo/redo functionality
+- No project save/load
+- No transitions between clips
+- No audio waveform visualization
+- No text overlays or effects
+
+## 🐛 Troubleshooting
+
+### App Issues
 
 **App won't launch:**
-- Check macOS version (10.14+ required)
-- Verify it's an Apple Silicon Mac (M1/M2/M3)
-- Try right-clicking app → "Open" to bypass security
+- Verify macOS 10.14+ and Apple Silicon Mac
+- Right-click app → Open (bypasses security)
+- Check Console.app for error messages
+
+**Recording doesn't work:**
+- Grant Screen Recording permission: System Preferences → Security & Privacy → Screen Recording
+- Grant Microphone permission: System Preferences → Security & Privacy → Microphone
+- Restart app after granting permissions
 
 **Video import fails:**
-- Ensure video format is supported (MP4, MOV, WebM)
-- Check file isn't corrupted
-- Try with a different video file
+- Ensure file format is MP4, MOV, or WebM
+- Check video isn't corrupted (play in QuickTime)
+- Try a different video file
 
-**Export fails:**
-- Ensure sufficient disk space
-- Check write permissions to destination folder
-- Try a different export location
+### Export Issues
 
-**Performance issues:**
-- Close other applications
-- Use smaller video files for testing
-- Restart the application
+**Export fails with FFmpeg error:**
+- Check available disk space
+- Ensure write permissions to destination
+- Try exporting to Desktop
+- Check video files aren't corrupted
 
-### Getting Help
+**Export has no audio:**
+- Currently only first clip's audio is exported
+- Ensure first clip has audio track
+- Check source video has audio
 
-- Check the [Issues](https://github.com/tornari2/gauntletai_week3_clipforge/issues) page
-- Create a new issue with:
-  - macOS version
-  - App version
-  - Steps to reproduce
-  - Error messages (if any)
+**Export takes a long time:**
+- Large videos take time to process
+- Higher resolutions take longer
+- Progress bar shows current status
+
+### Timeline Issues
+
+**Can't split clip:**
+- Ensure playhead is over clip's active (non-greyed) region
+- Playhead must be within clip bounds
+- Right-click the specific clip under playhead
+
+**Clips overlap visually:**
+- This shouldn't happen in v2.0+
+- If it does, try restarting the app
+- Report as a bug with reproduction steps
+
+## 📝 Changelog
+
+### v2.0.0 (October 2024) - Major Feature Update
+
+#### 🎯 Timeline & Playback
+- ✅ **Playhead Overlay**: Visual red line indicator showing current playback position
+- ✅ **Smart Playhead**: Automatically skips trimmed regions during playback
+- ✅ **Playhead-Centered Zoom**: Zoom in/out keeps playhead in same visual position
+- ✅ **Multi-Clip Timeline Preview**: Seamless playback across multiple clips
+- ✅ **Spacebar Control**: Press spacebar to play/pause (standard video editor behavior)
+
+#### ✂️ Clip Editing
+- ✅ **Split at Playhead**: Split clips at current playhead position
+- ✅ **Recursive Splitting**: Split already-split clips (unlimited splits)
+- ✅ **Split Trimmed Clips**: Fixed split functionality for trimmed clips
+- ✅ **Removed Split at Center**: Simplified to playhead-only splitting
+- ✅ **videoOffset Tracking**: Proper tracking of split clip positions in original video
+
+#### 🎨 Visual Improvements
+- ✅ **No Overlap**: Clips positioned using full duration prevents visual overlap
+- ✅ **Trim Region Display**: Greyed-out areas show trimmed portions
+- ✅ **Magnetic Snapping**: Clips snap to edges when repositioning
+- ✅ **Improved Drag UX**: Better visual feedback with grab/grabbing cursors
+- ✅ **Clip Scaling**: Dragged clips scale up with shadow effect
+
+#### 🎬 Export
+- ✅ **Multi-Clip Export**: Stitch multiple clips together
+- ✅ **Split Clip Support**: Export works correctly with split clips
+- ✅ **Resolution Scaling**: Multiple export resolutions (4K to 360p)
+- ✅ **FFmpeg Filter Complex**: Proper trim/concat/scale pipeline
+- ✅ **Audio Handling**: Works with videos with or without audio
+
+#### 🧹 UI Cleanup
+- ✅ **Removed Trim Controls Panel**: Redundant - use timeline handles
+- ✅ **Removed Recording Refresh Button**: Simplified recording panel header
+- ✅ **Cleaner Context Menu**: Only shows applicable actions
+
+#### 🐛 Bug Fixes
+- ✅ Fixed clip swap logic for bidirectional swapping
+- ✅ Fixed zoom calculation for accurate playhead centering
+- ✅ Fixed export FFmpeg command construction
+- ✅ Fixed export for split clips (videoOffset handling)
+- ✅ Fixed resolution format (WIDTHxHEIGHT)
+- ✅ Fixed audio stream handling (optional audio mapping)
+- ✅ Fixed filter complex conflicts (moved scale into filter)
+- ✅ Fixed split detection for trimmed clips
+
+#### 🔇 Debug Cleanup
+- ✅ Removed excessive console logging for trim operations
+- ✅ Removed debug logging for clip reordering
+- ✅ Optimized to skip unnecessary repositioning operations
+
+### v1.0.0 (October 2024) - Initial Production Release
+- 🎬 Basic video import and preview
+- 🎬 Timeline with drag-and-drop
+- 🎬 Trim controls with visual feedback
+- 🎬 Video export functionality
+- 🎬 Screen recording capability
+- 🎬 Dark theme UI
 
 ## 🛠️ Technical Stack
 
-- **Desktop Framework**: Electron 38+ (Cross-platform desktop apps)
-- **Frontend**: React 19+ with Vite (Modern UI framework)
-- **Video Processing**: fluent-ffmpeg + ffmpeg-static + ffprobe-static
-- **Build Tool**: electron-builder (App packaging)
-- **Language**: JavaScript (ES6+)
-- **Styling**: CSS3 with custom properties
-- **State Management**: React hooks (useState, useEffect)
-- **File Handling**: Node.js fs module with Electron APIs
+### Core Technologies
+- **Desktop**: Electron 38+ (Cross-platform desktop framework)
+- **Frontend**: React 19+ (UI library)
+- **Build Tool**: Vite 5+ (Fast build system with HMR)
+- **Language**: JavaScript ES6+ (No TypeScript)
+- **Styling**: CSS3 (Custom properties, no preprocessor)
+
+### Video Processing
+- **Engine**: FFmpeg (via ffmpeg-static)
+- **API**: fluent-ffmpeg (JavaScript wrapper)
+- **Metadata**: ffprobe-static (Video information extraction)
+- **Codecs**: H.264 video, AAC audio
+
+### Key Libraries
+- **State**: React hooks (useState, useEffect, useRef)
+- **IPC**: Electron contextBridge (secure renderer↔main communication)
+- **Recording**: MediaRecorder API + desktopCapturer
+- **File System**: Node.js fs module + Electron dialog
+
+### Build & Distribution
+- **Packager**: electron-builder
+- **Target**: DMG (macOS), EXE (Windows)
+- **Architecture**: Universal (ARM64 primary)
 
 ## 📁 Project Structure
 
 ```
 WK3_ClipForge/
 ├── src/
-│   ├── main/                    # Electron main process
-│   │   ├── main.js             # App lifecycle, window management
-│   │   └── preload.js          # Secure IPC bridge
-│   ├── renderer/               # React frontend
-│   │   ├── components/         # React components
-│   │   │   ├── MediaLibrary.jsx      # Video import/management
-│   │   │   ├── VideoPlayer.jsx       # HTML5 video preview
-│   │   │   ├── HorizontalTimeline.jsx # Timeline with trim handles
-│   │   │   ├── TrimControls.jsx      # Trim input controls
-│   │   │   ├── RecordingPanel.jsx    # Screen/webcam recording
-│   │   │   ├── RecordingControls.jsx # Recording state management
-│   │   │   ├── SourceSelector.jsx    # Recording source selection
-│   │   │   └── ExportButton.jsx      # Video export functionality
-│   │   ├── App.jsx             # Main React component
-│   │   ├── main.jsx            # React entry point
-│   │   └── index.html          # HTML template
+│   ├── main/
+│   │   ├── main.js              # Electron main process (970 lines)
+│   │   │   ├── Window lifecycle
+│   │   │   ├── IPC handlers (import, export, recording)
+│   │   │   ├── FFmpeg integration
+│   │   │   └── File system operations
+│   │   └── preload.js           # Secure IPC bridge
+│   │
+│   ├── renderer/
+│   │   ├── App.jsx              # Main app component (690 lines)
+│   │   │   ├── Clip state management
+│   │   │   ├── Timeline state (tracks, playhead, zoom)
+│   │   │   ├── Split/trim/reposition handlers
+│   │   │   └── Clip positioning logic
+│   │   │
+│   │   ├── components/
+│   │   │   ├── MediaLibrary.jsx         # Import & library (245 lines)
+│   │   │   ├── VideoPlayer.jsx          # Single clip preview (290 lines)
+│   │   │   ├── TimelinePreview.jsx      # Multi-clip playback (660 lines)
+│   │   │   │   ├── Seamless clip transitions
+│   │   │   │   ├── Playhead tracking
+│   │   │   │   └── Keyboard controls
+│   │   │   ├── HorizontalTimeline.jsx   # Timeline editor (790 lines)
+│   │   │   │   ├── Visual playhead overlay
+│   │   │   │   ├── Trim handles
+│   │   │   │   ├── Drag/drop/reorder
+│   │   │   │   ├── Zoom (playhead-centered)
+│   │   │   │   └── Context menu
+│   │   │   ├── RecordingPanel.jsx       # Recording UI (210 lines)
+│   │   │   ├── RecordingControls.jsx    # Recording state (120 lines)
+│   │   │   ├── SourceSelector.jsx       # Source selection (85 lines)
+│   │   │   └── ExportButton.jsx         # Export UI (248 lines)
+│   │   │
+│   │   ├── main.jsx             # React entry point
+│   │   └── index.html           # HTML template
+│   │
 │   └── styles/
-│       └── app.css             # Application styles (1450+ lines)
+│       └── app.css              # Application styles (1750+ lines)
+│           ├── Dark theme variables
+│           ├── Component styles
+│           ├── Timeline styles
+│           └── Animation keyframes
+│
+├── build/                       # App icons & assets
+│   ├── icon.icns               # macOS icon
+│   ├── icon.ico                # Windows icon
+│   └── icon.png                # App icon source
+│
 ├── test-videos/                # Test video files
-├── build/                      # App icons and assets
-├── dist-electron/              # Built application
-│   └── ClipForge-1.0.0-arm64.dmg  # Production DMG (205MB)
+│   ├── test1.mp4
+│   ├── test2.mp4
+│   ├── test3.mp4
+│   └── simple-test.mp4
+│
+├── dist/                       # Vite build output
+├── dist-electron/              # Electron build output
 ├── node_modules/               # Dependencies
-├── package.json                # Project configuration
+│
+├── package.json                # Project configuration & scripts
 ├── vite.config.js              # Vite build configuration
+├── PERMISSIONS.md              # macOS permissions guide
 └── README.md                   # This file
 ```
 
-## 🧪 Development
+## 🧪 Testing
 
-### Available Scripts
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start Vite development server only |
-| `npm run electron-dev` | Run both Vite and Electron in development |
-| `npm run build` | Build for production (creates dist/ folder) |
-| `npm run package` | Package for current platform |
-| `npm run package:mac` | Create macOS DMG installer |
-| `npm run package:win` | Create Windows EXE installer |
-
-### Testing
-
-The application includes test video files in the `test-videos/` directory:
+### Test Files
+Located in `test-videos/` directory:
 - `test1.mp4` - 10-second test video
-- `test2.mp4` - 5-second test video  
+- `test2.mp4` - 5-second test video
 - `test3.mp4` - 15-second test video
 - `simple-test.mp4` - Basic test file
-- `test1_trimmed.mp4` - Pre-trimmed example
 
-### Development Workflow
+### Testing Workflow
 
-1. **Start development server:**
-   ```bash
-   npm run dev
+1. **Import Tests**:
+   ```
+   - Import single video
+   - Import multiple videos
+   - Import different formats (MP4, MOV, WebM)
    ```
 
-2. **Make changes to React components** (auto-reload enabled)
-
-3. **Test timeline functionality:**
-   - Import test videos
-   - Test trim handles
-   - Verify export functionality
-
-4. **Build and test production:**
-   ```bash
-   npm run build
-   npm run package:mac
+2. **Timeline Tests**:
+   ```
+   - Drag clips to timeline
+   - Reorder clips (forward and backward)
+   - Remove clips from timeline
+   - Add same clip multiple times
    ```
 
-## 📝 Changelog
+3. **Trim Tests**:
+   ```
+   - Select clip
+   - Trim from start (left handle)
+   - Trim from end (right handle)
+   - Trim both sides
+   - Verify greyed-out regions
+   ```
 
-### v1.0.0 (October 2024) - Production Release
-- ✅ **Fixed Trim Persistence**: Trim values now persist when switching between clips
-- ✅ **Improved Timeline UX**: Trim handles only appear when clips are selected
-- ✅ **Visual Trim Feedback**: Left trim handle properly shrinks blue bar from left side
-- ✅ **Synchronized Controls**: Trim controls and timeline fully synchronized
-- ✅ **Export Accuracy**: Export uses correct trimmed portions
-- ✅ **Screen Recording**: Added screen and webcam recording capabilities
-- ✅ **Modern UI**: Dark theme with responsive design
-- ✅ **Production Build**: Ready-to-distribute DMG package
+4. **Split Tests**:
+   ```
+   - Position playhead over clip
+   - Right-click and split
+   - Split multiple times (recursive)
+   - Split trimmed clips
+   ```
 
-### v0.9.0 (October 2024) - Beta Release
-- 🎬 Basic video import and preview
-- 🎬 Timeline with drag-and-drop
-- 🎬 Trim controls with visual feedback
-- 🎬 Video export functionality
-- 🎬 FFmpeg integration
+5. **Playback Tests**:
+   ```
+   - Play single clip
+   - Play multiple clips (verify transitions)
+   - Verify playhead skips trimmed regions
+   - Test spacebar control
+   ```
 
-## Known Limitations
+6. **Zoom Tests**:
+   ```
+   - Zoom in at different playhead positions
+   - Zoom out
+   - Reset zoom
+   - Verify playhead stays centered
+   ```
 
-- Only supports MP4 and MOV video formats
-- Single clip editing only (no multi-clip concatenation)
-- No undo/redo functionality
-- No keyboard shortcuts
-- No project save/load
-- No advanced timeline features
+7. **Export Tests**:
+   ```
+   - Export single clip
+   - Export multiple clips
+   - Export with different resolutions
+   - Export trimmed clips
+   - Export split clips
+   ```
 
-## Future Enhancements
+## 🚧 Future Enhancements
 
-- Screen recording capability
-- Webcam recording
-- Multi-clip concatenation
-- Audio waveform visualization
-- Transitions and effects
-- Text overlays
+### High Priority
+- Multi-clip audio concatenation (currently only first clip's audio)
 - Undo/redo functionality
-- Keyboard shortcuts
-- Project save/load
+- Project save/load (timeline state persistence)
+- Audio waveform visualization
 
-## License
+### Medium Priority
+- Transitions between clips (fade, dissolve, etc.)
+- Text overlays with positioning
+- More keyboard shortcuts
+- Clip color adjustment
+- Speed control (slow-mo, time-lapse)
+
+### Low Priority
+- Multiple audio tracks
+- Video effects and filters
+- Greenscreen/chroma key
+- Advanced color grading
+- Plugin system
+
+## 📄 License
 
 MIT License - see LICENSE file for details
 
-## Contributing
+## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
 4. Test thoroughly
-5. Submit a pull request
+5. Commit your changes (`git commit -m 'Add amazing feature'`)
+6. Push to the branch (`git push origin feature/amazing-feature`)
+7. Open a Pull Request
 
-## Support
+### Development Guidelines
+- Follow existing code style
+- Add comments for complex logic
+- Test all features before submitting
+- Update README if adding new features
+- Keep commits focused and atomic
 
-For issues and questions, please create an issue on GitHub.
+## 💬 Support
+
+- **Issues**: [GitHub Issues](https://github.com/tornari2/gauntletai_week3_clipedit/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/tornari2/gauntletai_week3_clipedit/discussions)
+
+When reporting issues, include:
+- macOS version
+- App version
+- Steps to reproduce
+- Expected vs actual behavior
+- Error messages or screenshots
+- Video format and size (if relevant)
+
+## 🙏 Acknowledgments
+
+- FFmpeg team for the incredible video processing engine
+- Electron team for the desktop framework
+- React team for the UI library
+- All open-source contributors
+
+---
+
+**Built with ❤️ using Electron, React, and FFmpeg**

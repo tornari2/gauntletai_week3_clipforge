@@ -779,9 +779,9 @@ ipcMain.handle('list-video-sources', async () => {
     
     // Filter out the app's own window to prevent self-recording issues
     const filteredSources = sources.filter(source => {
-      // Exclude windows that contain "ClipForge" or "Electron" in the name
+      // Exclude windows that contain "ClipEdit" or "Electron" in the name
       const name = source.name.toLowerCase()
-      return !name.includes('clipforge') && 
+      return !name.includes('clipedit') && 
              !name.includes('electron') && 
              !name.includes('cursor') &&
              !name.includes('vite')

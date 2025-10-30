@@ -77,7 +77,7 @@ const RecordingPanel = ({ onRecordingComplete }) => {
       // Only check for self-recording if it's a window source, not a screen source
       if (selectedVideoSource.type === 'window') {
         const sourceName = selectedVideoSource.name.toLowerCase()
-        if (sourceName.includes('clipforge') || sourceName.includes('electron') || 
+        if (sourceName.includes('clipedit') || sourceName.includes('electron') || 
             sourceName.includes('cursor') || sourceName.includes('vite')) {
           return true
         }
@@ -122,8 +122,8 @@ const RecordingPanel = ({ onRecordingComplete }) => {
                   <li>Go to <strong>Security & Privacy</strong></li>
                   <li>Click the <strong>Privacy</strong> tab</li>
                   <li>Select <strong>Screen Recording</strong> from the left sidebar</li>
-                  <li>Check the box next to <strong>ClipForge</strong> (or your terminal app if running in dev mode)</li>
-                  <li>If you don't see ClipForge, try running the app again and the permission dialog should appear</li>
+                  <li>Check the box next to <strong>ClipEdit</strong> (or your terminal app if running in dev mode)</li>
+                  <li>If you don't see ClipEdit, try running the app again and the permission dialog should appear</li>
                   <li>Repeat for <strong>Microphone</strong> if you want to record audio</li>
                 </ol>
                 <p className="permission-note">

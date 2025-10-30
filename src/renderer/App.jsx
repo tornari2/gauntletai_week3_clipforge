@@ -640,7 +640,7 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>ClipForge MVP</h1>
+        <h1>ClipEdit</h1>
       </header>
       
       <main className="app-main">

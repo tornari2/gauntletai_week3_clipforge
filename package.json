@@ -1,7 +1,7 @@
 {
-  "name": "clipforge",
-  "version": "1.0.0",
-  "description": "ClipForge MVP - Desktop Video Editor",
+  "name": "clipedit",
+  "version": "2.0.0",
+  "description": "ClipEdit - Desktop Video Editor",
   "main": "src/main/main.js",
   "homepage": "./",
   "scripts": {
@@ -20,7 +20,7 @@
     "electron",
     "desktop"
   ],
-  "author": "ClipForge Team",
+  "author": "ClipEdit Team",
   "license": "MIT",
   "dependencies": {
     "express": "^5.1.0",
@@ -40,8 +40,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.clipforge.app",
-    "productName": "ClipForge",
+    "appId": "com.clipedit.app",
+    "productName": "ClipEdit",
     "directories": {
       "output": "dist-electron"
     },
