@@ -107,7 +107,7 @@ const HorizontalTimeline = ({
     e.stopPropagation()
     
     // Only allow trimming if this clip is selected
-    if (!selectedClip || selectedClip.id !== timelineClip.clip.id) {
+    if (!selectedClip || (selectedClip.id !== timelineClip.clipId && selectedClip.id !== timelineClip.clip.id)) {
       console.log('Trim blocked: clip not selected')
       return
     }
@@ -252,7 +252,7 @@ const HorizontalTimeline = ({
         
         // Select the clip after repositioning
         if (onClipSelect) {
-          onClipSelect(clipDragData.clip.clip)
+          onClipSelect(clipDragData.clip)
         }
       }
       
@@ -260,7 +260,7 @@ const HorizontalTimeline = ({
     } else if (!clipDragData.moved) {
       // Just a click, not a drag - select the clip
       if (onClipSelect) {
-        onClipSelect(clipDragData.clip.clip)
+        onClipSelect(clipDragData.clip)
       }
     }
     
@@ -467,7 +467,7 @@ const HorizontalTimeline = ({
                     const trimEndPx = (timelineClip.trimEnd / fullDuration) * clipWidthPx
                     const activeWidthPx = trimEndPx - trimStartPx
                     
-                    const isSelected = selectedClip && selectedClip.id === timelineClip.clip.id
+                    const isSelected = selectedClip && (selectedClip.id === timelineClip.clipId || selectedClip.id === timelineClip.clip.id)
                     const isDragging = clipDragData && clipDragData.clip.clipId === timelineClip.clipId
                     
                     return (

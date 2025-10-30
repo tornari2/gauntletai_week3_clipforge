@@ -228,19 +228,19 @@ function App() {
     console.log('App: Deleting timeline clip:', timelineClip, 'from track:', trackId)
     
     // If the deleted clip was editable, clear the editable state
-    if (editableClip && editableClip.id === timelineClip.clipId) {
+    if (editableClip && (editableClip.id === timelineClip.clipId || editableClip.id === timelineClip.clip.id)) {
       setEditableClip(null)
     }
     
     // If the deleted clip is currently being previewed, clear the preview
-    if (selectedClip && selectedClip.id === timelineClip.clipId) {
+    if (selectedClip && (selectedClip.id === timelineClip.clipId || selectedClip.id === timelineClip.clip.id)) {
       setSelectedClip(null)
     }
     
     // Reset the trim values in the original clip to its original duration
     setClips(prevClips => 
       prevClips.map(clip => 
-        clip.id === timelineClip.clipId 
+        (clip.id === timelineClip.clipId || clip.id === timelineClip.clip.id)
           ? { 
               ...clip, 
               trimStart: 0, 
