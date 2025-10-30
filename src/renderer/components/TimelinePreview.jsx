@@ -34,8 +34,13 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       setCurrentTime(0)
       currentTimeRef.current = 0
       
-      // DON'T call onPlayheadMove here - it causes infinite loop
-      // The playhead will be updated when video starts playing via handleTimeUpdate
+      // Set initial playhead position to first clip's startTime (usually 0)
+      // This sets the visual position on the timeline
+      if (onPlayheadMove && timelineClips[0]) {
+        const initialPosition = timelineClips[0].startTime
+        // Use setTimeout to avoid triggering during render
+        setTimeout(() => onPlayheadMove(initialPosition), 0)
+      }
     }
   }, [timeline])
 
