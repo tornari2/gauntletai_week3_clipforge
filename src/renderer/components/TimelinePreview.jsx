@@ -41,7 +41,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         onPlayheadMove(firstClipStartTime)
       }
     }
-  }, [timeline, onPlayheadMove])
+  }, [timeline])
 
   // Get current clip info with bounds checking
   const safeClipIndex = Math.min(Math.max(0, currentClipIndex), clips.length - 1)
@@ -130,6 +130,14 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         // Start from the first clip's startTime and add the elapsed timeline time
         const firstClipStartTime = clips[0]?.startTime || 0
         const playheadPosition = firstClipStartTime + timelineTime
+        
+        console.log('Playhead update:', {
+          firstClipStartTime,
+          timelineTime,
+          playheadPosition,
+          onPlayheadMove: !!onPlayheadMove,
+          pendingRAF: animationFrameRef.current !== null
+        })
         
         // Update progress bar DOM directly (no re-render)
         if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
