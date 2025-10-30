@@ -77,8 +77,10 @@ function App() {
   const handleTimelineClipSelect = (timelineClip) => {
     // Timeline clips can be both previewed and edited
     // Create a modified clip with the timeline's current trim values
+    // Store the clipId so we can distinguish between split clips
     const editableClipWithTimelineTrims = {
       ...timelineClip.clip,
+      id: timelineClip.clipId, // Use clipId to distinguish split clips
       trimStart: timelineClip.trimStart,
       trimEnd: timelineClip.trimEnd
     }
@@ -320,26 +322,29 @@ function App() {
     }
   }
 
-  // Helper function to recalculate timeline duration based on FULL clip durations
+  // Helper function to recalculate timeline duration based on trimmed clip durations
   const recalculateTimelineDuration = (tracks) => {
     let maxEndTime = 0
     tracks.forEach(track => {
+      let currentTime = 0
       track.clips.forEach(clip => {
-        // Use FULL original duration, not trimmed
-        const endTime = clip.startTime + clip.clip.duration
-        maxEndTime = Math.max(maxEndTime, endTime)
+        // Use trimmed duration (active region length) for spacing
+        const trimmedDuration = clip.trimEnd - clip.trimStart
+        currentTime += trimmedDuration
+        maxEndTime = Math.max(maxEndTime, currentTime)
       })
     })
     return maxEndTime
   }
 
-  // Helper function to reposition clips in a track end-to-end using FULL durations
+  // Helper function to reposition clips in a track end-to-end using trimmed durations
   const repositionClipsInTrack = (clips) => {
     let currentTime = 0
     return clips.map(clip => {
       const newClip = { ...clip, startTime: currentTime }
-      // Use FULL original duration for spacing
-      currentTime += clip.clip.duration
+      // Use trimmed duration (active region length) for spacing
+      const trimmedDuration = clip.trimEnd - clip.trimStart
+      currentTime += trimmedDuration
       return newClip
     })
   }
@@ -388,56 +393,90 @@ function App() {
       // Find clip under playhead in active region
       for (const track of newTimeline.tracks) {
         for (let i = 0; i < track.clips.length; i++) {
-          const clip = track.clips[i]
-          const activeStart = clip.startTime + clip.trimStart
-          const activeEnd = clip.startTime + clip.trimEnd
+          const originalTimelineClip = track.clips[i]
+          const activeStart = originalTimelineClip.startTime + originalTimelineClip.trimStart
+          const activeEnd = originalTimelineClip.startTime + originalTimelineClip.trimEnd
           
           // Only split if playhead is in ACTIVE region
           if (playheadTime > activeStart && playheadTime < activeEnd) {
             // Calculate split point in original video time
-            const splitTimeInOriginal = clip.trimStart + (playheadTime - clip.startTime)
+            const splitTimeInOriginal = originalTimelineClip.trimStart + (playheadTime - originalTimelineClip.startTime)
             
-            // Calculate durations for each segment
-            const segment1Duration = splitTimeInOriginal - clip.trimStart
-            const segment2Duration = clip.trimEnd - splitTimeInOriginal
+            console.log('Splitting clip at playhead:')
+            console.log('  Playhead time:', playheadTime)
+            console.log('  Original clip trimStart:', originalTimelineClip.trimStart, 'trimEnd:', originalTimelineClip.trimEnd)
+            console.log('  Split time in original video:', splitTimeInOriginal)
             
-            // Clip 1: First segment (no dead space)
-            const clip1 = {
-              clipId: Date.now(),
-              startTime: 0, // Will be repositioned
-              trimStart: 0,
-              trimEnd: segment1Duration,
-              clip: {
-                ...clip.clip,
-                duration: segment1Duration,
-                sourceOffset: clip.trimStart, // Where in original video this starts
-                isSegment: true
-              }
+            // Create two NEW independent clip objects (not just timeline clips)
+            const clip1Duration = splitTimeInOriginal - originalTimelineClip.trimStart
+            const clip2Duration = originalTimelineClip.trimEnd - splitTimeInOriginal
+            
+            // New clip 1: represents first half of the split
+            const newClip1 = {
+              ...originalTimelineClip.clip,
+              id: Date.now(),
+              duration: clip1Duration, // NEW: Set duration to only this portion
+              filePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
+              originalFilePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
+              originalDuration: originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration,
+              videoOffsetStart: originalTimelineClip.trimStart, // Where in original video this clip starts
+              videoOffsetEnd: splitTimeInOriginal, // Where in original video this clip ends
+              isSplitClip: true,
+              splitSource: originalTimelineClip.clip.id,
+              trimStart: 0, // Use full clip duration
+              trimEnd: clip1Duration // Use full clip duration
             }
             
-            // Clip 2: Second segment (no dead space)
-            const clip2 = {
-              clipId: Date.now() + 1,
-              startTime: 0, // Will be repositioned
-              trimStart: 0,
-              trimEnd: segment2Duration,
-              clip: {
-                ...clip.clip,
-                duration: segment2Duration,
-                sourceOffset: splitTimeInOriginal, // Where in original video this starts
-                isSegment: true
-              }
+            // New clip 2: represents second half of the split
+            const newClip2 = {
+              ...originalTimelineClip.clip,
+              id: Date.now() + 1,
+              duration: clip2Duration, // NEW: Set duration to only this portion
+              filePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
+              originalFilePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
+              originalDuration: originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration,
+              videoOffsetStart: splitTimeInOriginal, // Where in original video this clip starts
+              videoOffsetEnd: originalTimelineClip.trimEnd, // Where in original video this clip ends
+              isSplitClip: true,
+              splitSource: originalTimelineClip.clip.id,
+              trimStart: 0, // Use full clip duration
+              trimEnd: clip2Duration // Use full clip duration
             }
+            
+            // Clip 1: First half - uses full duration with no trim
+            const timelineClip1 = {
+              clipId: newClip1.id,
+              startTime: 0, // Will be repositioned
+              trimStart: 0, // Use full clip
+              trimEnd: clip1Duration, // Use full clip
+              clip: newClip1 // Reference to new clip object
+            }
+            
+            // Clip 2: Second half - uses full duration with no trim
+            const timelineClip2 = {
+              clipId: newClip2.id,
+              startTime: 0, // Will be repositioned
+              trimStart: 0, // Use full clip
+              trimEnd: clip2Duration, // Use full clip
+              clip: newClip2 // Reference to new clip object
+            }
+            
+            console.log('  Clip 1 duration:', clip1Duration, 'trim:', timelineClip1.trimStart, 'to', timelineClip1.trimEnd)
+            console.log('  Clip 2 duration:', clip2Duration, 'trim:', timelineClip2.trimStart, 'to', timelineClip2.trimEnd)
             
             // Replace original clip with two split clips
-            track.clips[i] = clip1
-            track.clips.splice(i + 1, 0, clip2)
+            track.clips[i] = timelineClip1
+            track.clips.splice(i + 1, 0, timelineClip2)
             
             // Reposition all clips in track end-to-end
             track.clips = repositionClipsInTrack(track.clips)
             
             // Recalculate timeline duration
             newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
+            
+            // Clear selection after split - clips should go back to blue
+            setSelectedClip(null)
+            setEditableClip(null)
             
             return newTimeline
           }
@@ -461,53 +500,87 @@ function App() {
       if (track) {
         const clipIndex = track.clips.findIndex(c => c.clipId === clipId)
         if (clipIndex >= 0) {
-          const clip = track.clips[clipIndex]
+          const originalTimelineClip = track.clips[clipIndex]
           
-          // Calculate center of active region
-          const activeDuration = clip.trimEnd - clip.trimStart
-          const splitTimeInOriginal = clip.trimStart + (activeDuration / 2)
+          // Calculate center of active region in the original video time
+          const activeDuration = originalTimelineClip.trimEnd - originalTimelineClip.trimStart
+          const splitTimeInOriginal = originalTimelineClip.trimStart + (activeDuration / 2)
           
-          // Calculate durations for each segment
-          const segment1Duration = splitTimeInOriginal - clip.trimStart
-          const segment2Duration = clip.trimEnd - splitTimeInOriginal
+          console.log('Splitting clip at center:')
+          console.log('  Original clip trimStart:', originalTimelineClip.trimStart, 'trimEnd:', originalTimelineClip.trimEnd)
+          console.log('  Active duration:', activeDuration)
+          console.log('  Split time in original video:', splitTimeInOriginal)
           
-          // Clip 1: First segment (no dead space)
-          const clip1 = {
-            clipId: Date.now(),
-            startTime: 0, // Will be repositioned
-            trimStart: 0,
-            trimEnd: segment1Duration,
-            clip: {
-              ...clip.clip,
-              duration: segment1Duration,
-              sourceOffset: clip.trimStart, // Where in original video this starts
-              isSegment: true
-            }
+          // Create two NEW independent clip objects (not just timeline clips)
+          const clip1Duration = splitTimeInOriginal - originalTimelineClip.trimStart
+          const clip2Duration = originalTimelineClip.trimEnd - splitTimeInOriginal
+          
+          // New clip 1: represents first half of the split
+          const newClip1 = {
+            ...originalTimelineClip.clip,
+            id: Date.now(),
+            duration: clip1Duration, // NEW: Set duration to only this portion
+            filePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
+            originalFilePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
+            originalDuration: originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration,
+            videoOffsetStart: originalTimelineClip.trimStart, // Where in original video this clip starts
+            videoOffsetEnd: splitTimeInOriginal, // Where in original video this clip ends
+            isSplitClip: true,
+            splitSource: originalTimelineClip.clip.id,
+            trimStart: 0, // Use full clip duration
+            trimEnd: clip1Duration // Use full clip duration
           }
           
-          // Clip 2: Second segment (no dead space)
-          const clip2 = {
-            clipId: Date.now() + 1,
-            startTime: 0, // Will be repositioned
-            trimStart: 0,
-            trimEnd: segment2Duration,
-            clip: {
-              ...clip.clip,
-              duration: segment2Duration,
-              sourceOffset: splitTimeInOriginal, // Where in original video this starts
-              isSegment: true
-            }
+          // New clip 2: represents second half of the split
+          const newClip2 = {
+            ...originalTimelineClip.clip,
+            id: Date.now() + 1,
+            duration: clip2Duration, // NEW: Set duration to only this portion
+            filePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
+            originalFilePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
+            originalDuration: originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration,
+            videoOffsetStart: splitTimeInOriginal, // Where in original video this clip starts
+            videoOffsetEnd: originalTimelineClip.trimEnd, // Where in original video this clip ends
+            isSplitClip: true,
+            splitSource: originalTimelineClip.clip.id,
+            trimStart: 0, // Use full clip duration
+            trimEnd: clip2Duration // Use full clip duration
           }
+          
+          // Clip 1: First half - uses full duration with no trim
+          const timelineClip1 = {
+            clipId: newClip1.id,
+            startTime: 0, // Will be repositioned
+            trimStart: 0, // Use full clip
+            trimEnd: clip1Duration, // Use full clip
+            clip: newClip1 // Reference to new clip object
+          }
+          
+          // Clip 2: Second half - uses full duration with no trim
+          const timelineClip2 = {
+            clipId: newClip2.id,
+            startTime: 0, // Will be repositioned
+            trimStart: 0, // Use full clip
+            trimEnd: clip2Duration, // Use full clip
+            clip: newClip2 // Reference to new clip object
+          }
+          
+          console.log('  Clip 1 duration:', clip1Duration, 'trim:', timelineClip1.trimStart, 'to', timelineClip1.trimEnd)
+          console.log('  Clip 2 duration:', clip2Duration, 'trim:', timelineClip2.trimStart, 'to', timelineClip2.trimEnd)
           
           // Replace original clip with two split clips
-          track.clips[clipIndex] = clip1
-          track.clips.splice(clipIndex + 1, 0, clip2)
+          track.clips[clipIndex] = timelineClip1
+          track.clips.splice(clipIndex + 1, 0, timelineClip2)
           
           // Reposition all clips in track end-to-end
           track.clips = repositionClipsInTrack(track.clips)
           
           // Recalculate timeline duration
           newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
+          
+          // Clear selection after split - clips should go back to blue
+          setSelectedClip(null)
+          setEditableClip(null)
         }
       }
       

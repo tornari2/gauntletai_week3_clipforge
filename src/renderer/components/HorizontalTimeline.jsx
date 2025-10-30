@@ -48,8 +48,8 @@ const HorizontalTimeline = ({
   const basePixelsPerSecond = timeline.duration > 0 
     ? containerWidthRef.current / timeline.duration 
     : BASE_PIXELS_PER_SECOND
-  const pixelsPerSecond = basePixelsPerSecond * (timeline.zoomLevel || 1.0)
-  const timelineWidthPx = timeline.duration * pixelsPerSecond
+  const pixelsPerSecond = Math.max(0.1, (basePixelsPerSecond || BASE_PIXELS_PER_SECOND) * (timeline.zoomLevel || 1.0))
+  const timelineWidthPx = Math.max(0, (timeline.duration || 0) * pixelsPerSecond)
 
   // Measure on mount and when timeline changes
   useLayoutEffect(() => {
@@ -74,26 +74,32 @@ const HorizontalTimeline = ({
     const snapPoints = []
     
     // Add snap points from all clip edges (active regions only)
-    timeline.tracks.forEach(track => {
-      track.clips.forEach(clip => {
-        if (clip.clipId !== excludeClipId) {
-          const activeStart = clip.startTime + clip.trimStart
-          const activeEnd = clip.startTime + clip.trimEnd
-          snapPoints.push(activeStart)
-          snapPoints.push(activeEnd)
+    if (timeline && timeline.tracks) {
+      timeline.tracks.forEach(track => {
+        if (track && track.clips) {
+          track.clips.forEach(clip => {
+            if (clip && clip.clipId !== excludeClipId) {
+              const activeStart = (clip.startTime || 0) + (clip.trimStart || 0)
+              const activeEnd = (clip.startTime || 0) + (clip.trimEnd || 0)
+              snapPoints.push(activeStart)
+              snapPoints.push(activeEnd)
+            }
+          })
         }
       })
-    })
+    }
     
     // Find closest snap point
     let closestPoint = targetTime
     let closestDistance = snapThreshold
     
     snapPoints.forEach(point => {
-      const distance = Math.abs(point - targetTime)
-      if (distance < closestDistance) {
-        closestPoint = point
-        closestDistance = distance
+      if (typeof point === 'number' && !isNaN(point)) {
+        const distance = Math.abs(point - targetTime)
+        if (distance < closestDistance) {
+          closestPoint = point
+          closestDistance = distance
+        }
       }
     })
     
@@ -134,13 +140,21 @@ const HorizontalTimeline = ({
     let newTrimStart = trimDragData.originalTrimStart
     let newTrimEnd = trimDragData.originalTrimEnd
     
+    // Get the original split boundaries if this is a split clip
+    const originalSplitStart = trimDragData.clip.originalTrimStart
+    const originalSplitEnd = trimDragData.clip.originalTrimEnd
+    
+    // Constrain to original split boundaries if they exist (for split clips)
+    const minTrimStart = originalSplitStart !== undefined ? originalSplitStart : 0
+    const maxTrimEnd = originalSplitEnd !== undefined ? originalSplitEnd : trimDragData.clip.clip.duration
+    
     if (trimDragData.handleType === 'left') {
       // Left handle: adjust trimStart
-      newTrimStart = Math.max(0, trimDragData.originalTrimStart + timeDelta)
+      newTrimStart = Math.max(minTrimStart, trimDragData.originalTrimStart + timeDelta)
       newTrimStart = Math.min(newTrimStart, trimDragData.originalTrimEnd - 0.1) // Min 0.1s
     } else if (trimDragData.handleType === 'right') {
       // Right handle: adjust trimEnd
-      newTrimEnd = Math.min(trimDragData.clip.clip.duration, trimDragData.originalTrimEnd + timeDelta)
+      newTrimEnd = Math.min(maxTrimEnd, trimDragData.originalTrimEnd + timeDelta)
       newTrimEnd = Math.max(newTrimEnd, trimDragData.originalTrimStart + 0.1) // Min 0.1s
     }
     
@@ -416,7 +430,7 @@ const HorizontalTimeline = ({
           )}
           
           {/* Tracks */}
-          {timeline.tracks.map(track => (
+          {timeline && timeline.tracks ? timeline.tracks.map(track => (
             <div key={track.id} className="timeline-track">
               <div className="track-label">
                 {track.name}
@@ -458,17 +472,25 @@ const HorizontalTimeline = ({
                   </div>
                 ) : (
                   track.clips.map((timelineClip, index) => {
-                    const fullDuration = timelineClip.clip.duration
-                    const clipWidthPx = fullDuration * pixelsPerSecond
-                    const clipLeftPx = timelineClip.startTime * pixelsPerSecond
+                    // Safety check: ensure clip and clip.clip exist
+                    if (!timelineClip || !timelineClip.clip) {
+                      return null
+                    }
                     
-                    // Calculate trim overlay positions
-                    const trimStartPx = (timelineClip.trimStart / fullDuration) * clipWidthPx
-                    const trimEndPx = (timelineClip.trimEnd / fullDuration) * clipWidthPx
+                    const fullDuration = timelineClip.clip.duration || 0
+                    const trimmedDuration = Math.max(0, (timelineClip.trimEnd || 0) - (timelineClip.trimStart || 0))
+                    // Use full duration for clip bar width to show trim overlays
+                    const clipWidthPx = Math.max(0, fullDuration * pixelsPerSecond)
+                    const clipLeftPx = Math.max(0, (timelineClip.startTime || 0) * pixelsPerSecond)
+                    
+                    // Calculate trim overlay positions (relative to full duration)
+                    const trimStartPx = fullDuration > 0 ? ((timelineClip.trimStart || 0) / fullDuration) * clipWidthPx : 0
+                    const trimEndPx = fullDuration > 0 ? ((timelineClip.trimEnd || 0) / fullDuration) * clipWidthPx : clipWidthPx
                     const activeWidthPx = trimEndPx - trimStartPx
                     
-                    const isSelected = selectedClip && (selectedClip.id === timelineClip.clipId || selectedClip.id === timelineClip.clip.id)
-                    const isDragging = clipDragData && clipDragData.clip.clipId === timelineClip.clipId
+                    // Only check clipId for selection - split clips share the same original clip but have different clipIds
+                    const isSelected = selectedClip && selectedClip.id === timelineClip.clipId
+                    const isDragging = clipDragData && clipDragData.clip && clipDragData.clip.clipId === timelineClip.clipId
                     
                     return (
                       <div
@@ -543,7 +565,7 @@ const HorizontalTimeline = ({
                 )}
               </div>
             </div>
-          ))}
+          )) : null}
         </div>
       </div>
       

@@ -16,6 +16,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
   const lastPlayheadPositionRef = useRef(null) // Track last playhead position to avoid unnecessary updates
   const isDraggingSeekRef = useRef(false) // Track if user is dragging the seek bar
   const currentVideoSrcRef = useRef(null) // Track current video source to avoid unnecessary reloads
+  const actualClipIndexRef = useRef(0) // Track actual clip we're in without causing re-renders during scrubbing
 
   // Get clips from main track and calculate timeline info
   useEffect(() => {
@@ -45,34 +46,45 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
 
   // Get current clip info with bounds checking
   const safeClipIndex = Math.min(Math.max(0, currentClipIndex), clips.length - 1)
-  const currentClip = clips[safeClipIndex]
+  const currentClip = clips[safeClipIndex] || null
 
-  // Load current clip
+  // Load current clip - only when source changes or timeline changes
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !currentClip || safeClipIndex >= clips.length) return
+    if (!video || !currentClip || safeClipIndex >= clips.length || !currentClip.clip) return
 
-    console.log('TimelinePreview: Loading clip', currentClipIndex, ':', currentClip.clip.fileName)
-    console.log('TimelinePreview: Trim range:', currentClip.trimStart, 'to', currentClip.trimEnd)
-    console.log('TimelinePreview: Should play:', shouldPlayRef.current)
-    
     // Use custom local:// protocol
-    const localSrc = `local://${currentClip.clip.filePath.startsWith('/') ? currentClip.clip.filePath : '/' + currentClip.clip.filePath}`
+    // For split clips, always use the originalFilePath to ensure they share the same video source
+    const sourceFilePath = currentClip.clip.originalFilePath || currentClip.clip.filePath
+    const localSrc = `local://${sourceFilePath.startsWith('/') ? sourceFilePath : '/' + sourceFilePath}`
     
-    // Only reload if source changed or if we need to seek to a different position
-    const needsReload = currentVideoSrcRef.current !== localSrc || 
-                       (video.currentTime < currentClip.trimStart || video.currentTime > currentClip.trimEnd)
+    // Only reload if source actually changed
+    const needsReload = currentVideoSrcRef.current !== localSrc
     
-    if (needsReload) {
-      video.src = localSrc
-      video.load()
-      currentVideoSrcRef.current = localSrc
+    // Skip if same source and we're just changing clip index (for split clips from same source)
+    if (!needsReload) {
+      // console.log('Skipping reload - same source, clip index changed for split clips')
+      return
     }
     
-    // Set position to trim start (always start at the beginning of the trimmed portion)
-    // But only if we need to seek (not already in the right position)
-    if (Math.abs(video.currentTime - currentClip.trimStart) > 0.1) {
-      video.currentTime = currentClip.trimStart
+    console.log('=== TimelinePreview: Loading NEW Video Source ===')
+    console.log('  Clip index:', currentClipIndex, '/', clips.length)
+    console.log('  Clip fileName:', currentClip.clip.fileName)
+    console.log('  Loading source:', localSrc)
+    console.log('==================================')
+    
+    video.src = localSrc
+    video.load()
+    currentVideoSrcRef.current = localSrc
+    
+    // Set initial position after load
+    if (typeof currentClip.trimStart === 'number') {
+      // For split clips, use videoOffsetStart if available (offset into original video)
+      const seekPosition = currentClip.clip.videoOffsetStart !== undefined 
+        ? currentClip.clip.videoOffsetStart 
+        : currentClip.trimStart
+      console.log('  Will seek to:', seekPosition, 'after load')
+      video.currentTime = seekPosition
     }
     
     // If we should be playing, start playing after the video is ready
@@ -95,38 +107,140 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     if (!video) return
 
   const handleTimeUpdate = () => {
-    if (!currentClip || isDraggingSeekRef.current) return
+    if (!currentClip || !currentClip.clip) return
+    
+    // Skip ALL processing during scrubbing - the seekToTime function handles everything
+    if (isDraggingSeekRef.current) return
     
     const videoTime = video.currentTime
-    const timeInClip = videoTime - currentClip.trimStart
+    
+    // Find which clip we're actually in based on video time
+    // This is important for split clips where we might scrub between them
+    let actualClipIndex = actualClipIndexRef.current
+    let actualClip = clips[actualClipIndex] || currentClip
+    
+    // Check all clips to find the right one
+    for (let i = 0; i < clips.length; i++) {
+      const clip = clips[i]
+      const clipStart = clip.clip.videoOffsetStart !== undefined ? clip.clip.videoOffsetStart : clip.trimStart
+      const clipEnd = clip.clip.videoOffsetEnd !== undefined ? clip.clip.videoOffsetEnd : clip.trimEnd
+      
+      // Check if current video time is within this clip's range
+      if (videoTime >= clipStart && videoTime < clipEnd) {
+        actualClipIndex = i
+        actualClip = clip
+        actualClipIndexRef.current = i
+        
+        // Update state if different (only during playback, not scrubbing)
+        if (actualClipIndex !== currentClipIndex) {
+          console.log('Time update detected clip boundary crossing to clip', actualClipIndex)
+          setCurrentClipIndex(actualClipIndex)
+        }
+        break
+      }
+    }
+    
+    // For split clips, check against videoOffsetEnd instead of trimEnd
+    const clipEndTime = actualClip.clip.videoOffsetEnd !== undefined 
+      ? actualClip.clip.videoOffsetEnd 
+      : actualClip.trimEnd
+    
+    const clipStartTime = actualClip.clip.videoOffsetStart !== undefined
+      ? actualClip.clip.videoOffsetStart
+      : actualClip.trimStart
+    
+    const timeInClip = videoTime - clipStartTime
       
       // Check if we've exceeded the trim end point
-      if (videoTime >= currentClip.trimEnd) {
+      if (typeof clipEndTime === 'number' && videoTime >= clipEndTime) {
+        console.log('=== Transitioning to Next Clip ===')
+        console.log('  Current clip ended at:', videoTime)
+        console.log('  Current clip trimEnd/offsetEnd:', clipEndTime)
+        
         // Move to next clip
         if (currentClipIndex < clips.length - 1) {
           const nextClipIndex = currentClipIndex + 1
           const nextClip = clips[nextClipIndex]
           
-          if (nextClip) {
-            // Immediately seek to next clip's start position if same source
-            // This prevents restart from beginning for split clips
-            if (nextClip.clip.filePath === currentClip.clip.filePath && currentVideoSrcRef.current) {
-              video.currentTime = nextClip.trimStart
-            }
+          if (nextClip && nextClip.clip) {
+            console.log('  Next clip:', nextClip.clip.fileName)
+            console.log('  Next clip ID:', nextClip.clipId)
+            console.log('  Next clip trimStart:', nextClip.trimStart, 'trimEnd:', nextClip.trimEnd)
+            console.log('  Next clip isSplitClip:', nextClip.clip.isSplitClip)
+            console.log('  Next clip videoOffsetStart:', nextClip.clip.videoOffsetStart, 'videoOffsetEnd:', nextClip.clip.videoOffsetEnd)
+            console.log('  Same source file?', nextClip.clip.originalFilePath === currentClip.clip.originalFilePath || nextClip.clip.filePath === currentClip.clip.filePath)
             
-            shouldPlayRef.current = isPlaying
-            setCurrentClipIndex(nextClipIndex)
-            
-            // Calculate the timeline time for the start of the next clip's trimmed portion
-            const nextClipTimelineTime = clips.slice(0, nextClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
-            setCurrentTime(nextClipTimelineTime)
-            currentTimeRef.current = nextClipTimelineTime
-            
-            // Update playhead position (continues from current position, doesn't jump)
-            const firstClipStartTime = clips[0]?.startTime || 0
-            const nextPlayheadPosition = firstClipStartTime + nextClipTimelineTime
-            if (onPlayheadMove) {
-              onPlayheadMove(nextPlayheadPosition)
+            // For split clips (same source file), seamlessly transition by seeking
+            const isSameSource = nextClip.clip.originalFilePath === currentClip.clip.originalFilePath || 
+                                 nextClip.clip.filePath === currentClip.clip.filePath
+            if (isSameSource && currentVideoSrcRef.current) {
+              console.log('  Using seamless transition (seeking)')
+              // Seek to next clip's start position immediately
+              // For split clips, use videoOffsetStart
+              const nextSeekPosition = nextClip.clip.videoOffsetStart !== undefined
+                ? nextClip.clip.videoOffsetStart
+                : nextClip.trimStart
+              console.log('  Seeking video to:', nextSeekPosition)
+              video.currentTime = nextSeekPosition
+              
+              // Update clip index and state immediately
+              setCurrentClipIndex(nextClipIndex)
+              
+              // Calculate the timeline time for the start of the next clip's trimmed portion
+              const nextClipTimelineTime = clips.slice(0, nextClipIndex).reduce((total, clip) => {
+                const clipDuration = (clip.trimEnd || 0) - (clip.trimStart || 0)
+                return total + Math.max(0, clipDuration)
+              }, 0)
+              setCurrentTime(nextClipTimelineTime)
+              currentTimeRef.current = nextClipTimelineTime
+              
+              // Update playhead position
+              const firstClipStartTime = clips[0]?.startTime || 0
+              const nextPlayheadPosition = firstClipStartTime + nextClipTimelineTime
+              if (onPlayheadMove) {
+                onPlayheadMove(nextPlayheadPosition)
+              }
+              
+              // Update UI immediately for smooth transition
+              if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
+                const progress = (nextClipTimelineTime / totalDuration) * 100
+                progressBarRef.current.style.width = `${progress}%`
+                seekHandleRef.current.style.left = `${progress}%`
+              }
+              
+              // Update time display
+              if (timeDisplayRef.current) {
+                timeDisplayRef.current.textContent = `${formatTime(nextClipTimelineTime)} / ${formatTime(totalDuration)}`
+              }
+              
+              // Ensure video continues playing if it was playing (seeking might pause it)
+              // Use a small timeout to ensure the seek completes first
+              if (isPlaying) {
+                setTimeout(() => {
+                  if (video.paused && isPlaying) {
+                    video.play().catch(err => console.warn('Play failed after transition:', err))
+                  }
+                }, 10)
+              }
+            } else {
+              // Different source file - use existing transition logic
+              shouldPlayRef.current = isPlaying
+              setCurrentClipIndex(nextClipIndex)
+              
+              // Calculate the timeline time for the start of the next clip's trimmed portion
+              const nextClipTimelineTime = clips.slice(0, nextClipIndex).reduce((total, clip) => {
+                const clipDuration = (clip.trimEnd || 0) - (clip.trimStart || 0)
+                return total + Math.max(0, clipDuration)
+              }, 0)
+              setCurrentTime(nextClipTimelineTime)
+              currentTimeRef.current = nextClipTimelineTime
+              
+              // Update playhead position
+              const firstClipStartTime = clips[0]?.startTime || 0
+              const nextPlayheadPosition = firstClipStartTime + nextClipTimelineTime
+              if (onPlayheadMove) {
+                onPlayheadMove(nextPlayheadPosition)
+              }
             }
           }
         } else {
@@ -142,7 +256,10 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         }
       } else {
         // Update current time within the timeline
-        const accumulatedTime = clips.slice(0, currentClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
+        const accumulatedTime = clips.slice(0, actualClipIndex).reduce((total, clip) => {
+          const clipDuration = (clip.trimEnd || 0) - (clip.trimStart || 0)
+          return total + Math.max(0, clipDuration)
+        }, 0)
         const timelineTime = accumulatedTime + timeInClip
         currentTimeRef.current = timelineTime
         
@@ -177,12 +294,19 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     }
 
     const handleLoadedMetadata = () => {
-      if (currentClip) {
+      if (currentClip && currentClip.clip && typeof currentClip.trimStart === 'number') {
         // Always start at the beginning of the trimmed portion
-        video.currentTime = currentClip.trimStart
+        // For split clips, use videoOffsetStart
+        const seekPosition = currentClip.clip.videoOffsetStart !== undefined 
+          ? currentClip.clip.videoOffsetStart 
+          : currentClip.trimStart
+        video.currentTime = seekPosition
         
         // Update timeline time correctly - start at the beginning of this clip's trimmed portion
-        const accumulatedTime = clips.slice(0, currentClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
+        const accumulatedTime = clips.slice(0, currentClipIndex).reduce((total, clip) => {
+          const clipDuration = (clip.trimEnd || 0) - (clip.trimStart || 0)
+          return total + Math.max(0, clipDuration)
+        }, 0)
         setCurrentTime(accumulatedTime)
         
         // DON'T call onPlayheadMove here - causes infinite loop
@@ -275,6 +399,9 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     if (!seekBar) return
     
     const rect = seekBar.getBoundingClientRect()
+    let rafId = null
+    let lastSeekTime = 0
+    const SEEK_THROTTLE_MS = 50 // Only actually seek video every 50ms
     
     const handleMouseMove = (moveEvent) => {
       if (!isDraggingSeekRef.current) return
@@ -284,14 +411,55 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       
       const clickX = moveEvent.clientX - rect.left
       const newTimelineTime = Math.max(0, Math.min((clickX / rect.width) * totalDuration, totalDuration))
-      seekToTime(newTimelineTime)
+      
+      // Cancel any pending animation frame
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+      }
+      
+      // Use requestAnimationFrame for smooth UI updates
+      rafId = requestAnimationFrame(() => {
+        // ALWAYS update UI immediately for smooth visual feedback
+        if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
+          const progress = (newTimelineTime / totalDuration) * 100
+          progressBarRef.current.style.width = `${progress}%`
+          seekHandleRef.current.style.left = `${progress}%`
+        }
+        
+        // Update time display
+        if (timeDisplayRef.current) {
+          timeDisplayRef.current.textContent = `${formatTime(newTimelineTime)} / ${formatTime(totalDuration)}`
+        }
+        
+        // Only actually seek video at throttled rate to prevent flicker
+        const now = Date.now()
+        if (now - lastSeekTime > SEEK_THROTTLE_MS) {
+          lastSeekTime = now
+          seekToTime(newTimelineTime)
+        }
+      })
     }
     
     const handleMouseUp = () => {
-      // Small delay to prevent onClick from firing
-      setTimeout(() => {
-        isDraggingSeekRef.current = false
-      }, 10)
+      // Cancel any pending animation frame
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+      }
+      
+      // Clear scrubbing flag first
+      isDraggingSeekRef.current = false
+      
+      // Sync state to match refs after scrubbing completes (single update)
+      const finalTime = currentTimeRef.current
+      const finalClipIndex = actualClipIndexRef.current
+      
+      console.log('Scrub ended - syncing state:', { time: finalTime, clipIndex: finalClipIndex })
+      
+      setCurrentTime(finalTime)
+      if (finalClipIndex !== currentClipIndex) {
+        setCurrentClipIndex(finalClipIndex)
+      }
+      
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
@@ -324,37 +492,58 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       accumulatedTime += clipDuration
     }
     
-    // Switch to target clip if needed
-    if (targetClipIndex !== currentClipIndex) {
-      setCurrentClipIndex(targetClipIndex)
+    const targetClip = clips[targetClipIndex]
+    if (!targetClip) return
+    
+    // Check if we're switching clips
+    const isSwitchingClips = targetClipIndex !== currentClipIndex
+    
+    // Set video position immediately
+    const baseOffset = targetClip.clip.videoOffsetStart !== undefined 
+      ? targetClip.clip.videoOffsetStart 
+      : targetClip.trimStart
+    const targetVideoTime = baseOffset + timeInTargetClip
+    
+    // Only log when not scrubbing to avoid spam
+    if (!isDraggingSeekRef.current) {
+      console.log('=== SeekToTime ===')
+      console.log('  Target timeline time:', newTimelineTime)
+      console.log('  Target clip index:', targetClipIndex)
+      console.log('  Seeking to video time:', targetVideoTime)
     }
     
-    // Set video position
-    const targetClip = clips[targetClipIndex]
-    if (targetClip) {
-      const targetVideoTime = targetClip.trimStart + timeInTargetClip
-      video.currentTime = targetVideoTime
+    video.currentTime = targetVideoTime
+    
+    // Update ref (no re-render)
+    currentTimeRef.current = newTimelineTime
+    actualClipIndexRef.current = targetClipIndex
+    
+    // ONLY update state if NOT scrubbing (to prevent flicker)
+    if (!isDraggingSeekRef.current) {
       setCurrentTime(newTimelineTime)
-      currentTimeRef.current = newTimelineTime
       
-      // Update progress bar and handle in real-time during scrubbing
-      if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
-        const progress = (newTimelineTime / totalDuration) * 100
-        progressBarRef.current.style.width = `${progress}%`
-        seekHandleRef.current.style.left = `${progress}%`
+      if (isSwitchingClips) {
+        setCurrentClipIndex(targetClipIndex)
       }
-      
-      // Update time display
-      if (timeDisplayRef.current) {
-        timeDisplayRef.current.textContent = `${formatTime(newTimelineTime)} / ${formatTime(totalDuration)}`
-      }
-      
-      // Update playhead position
-      const firstClipStartTime = clips[0]?.startTime || 0
-      const playheadPosition = firstClipStartTime + newTimelineTime
-      if (onPlayheadMove) {
-        onPlayheadMove(playheadPosition)
-      }
+    }
+    
+    // Update progress bar and handle directly via DOM (no React re-render)
+    if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
+      const progress = (newTimelineTime / totalDuration) * 100
+      progressBarRef.current.style.width = `${progress}%`
+      seekHandleRef.current.style.left = `${progress}%`
+    }
+    
+    // Update time display directly via DOM (no React re-render)
+    if (timeDisplayRef.current) {
+      timeDisplayRef.current.textContent = `${formatTime(newTimelineTime)} / ${formatTime(totalDuration)}`
+    }
+    
+    // Update playhead position (this might cause parent re-render, but necessary for timeline sync)
+    const firstClipStartTime = clips[0]?.startTime || 0
+    const playheadPosition = firstClipStartTime + newTimelineTime
+    if (onPlayheadMove) {
+      onPlayheadMove(playheadPosition)
     }
   }
 
