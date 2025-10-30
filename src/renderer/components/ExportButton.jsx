@@ -98,12 +98,22 @@ const ExportButton = ({ selectedClip, timeline }) => {
       setExportStatus('Exporting video...')
 
       // Prepare clips data for stitching
-      const clipsData = clips.map(timelineClip => ({
-        filePath: timelineClip.clip.filePath,
-        startTime: timelineClip.trimStart,
-        duration: timelineClip.trimEnd - timelineClip.trimStart,
-        timelineStart: timelineClip.startTime
-      }))
+      const clipsData = clips.map(timelineClip => {
+        // For split clips, use videoOffsetStart/End instead of trimStart/End
+        const startTime = timelineClip.clip.videoOffsetStart !== undefined 
+          ? timelineClip.clip.videoOffsetStart 
+          : timelineClip.trimStart
+        const endTime = timelineClip.clip.videoOffsetEnd !== undefined 
+          ? timelineClip.clip.videoOffsetEnd 
+          : timelineClip.trimEnd
+        
+        return {
+          filePath: timelineClip.clip.originalFilePath || timelineClip.clip.filePath,
+          startTime: startTime,
+          duration: endTime - startTime,
+          timelineStart: timelineClip.startTime
+        }
+      })
 
       // Call export function with multiple clips
       await window.electronAPI.exportTimeline({
