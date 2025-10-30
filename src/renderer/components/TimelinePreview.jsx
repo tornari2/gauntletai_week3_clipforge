@@ -34,12 +34,8 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       setCurrentTime(0)
       currentTimeRef.current = 0
       
-      // Update playhead to the first clip's start position on the timeline
-      // The playhead position should be the clip's startTime (absolute position on timeline)
-      const firstClipStartTime = timelineClips[0].startTime
-      if (onPlayheadMove) {
-        onPlayheadMove(firstClipStartTime)
-      }
+      // DON'T call onPlayheadMove here - it causes infinite loop
+      // The playhead will be updated when video starts playing via handleTimeUpdate
     }
   }, [timeline])
 
