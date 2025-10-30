@@ -672,12 +672,9 @@ ipcMain.handle('export-timeline', async (event, options) => {
     return new Promise((resolve, reject) => {
       // Create a complex filter for concatenating videos
       let filterComplex = ''
-      let inputs = []
       
-      // Build input array and filter complex
+      // Build filter complex for trimming each clip
       clips.forEach((clip, index) => {
-        inputs.push('-i', clip.filePath)
-        
         // Create trim filter for each clip
         const trimFilter = `[${index}:v]trim=start=${clip.startTime}:duration=${clip.duration},setpts=PTS-STARTPTS[v${index}];[${index}:a]atrim=start=${clip.startTime}:duration=${clip.duration},asetpts=PTS-STARTPTS[a${index}]`
         filterComplex += trimFilter + ';'
@@ -691,8 +688,10 @@ ipcMain.handle('export-timeline', async (event, options) => {
       
       let command = ffmpeg()
       
-      // Add all inputs
-      command.inputs(inputs)
+      // Add all input files
+      clips.forEach((clip) => {
+        command.input(clip.filePath)
+      })
       
       // Apply filter complex
       command.complexFilter(filterComplex)
