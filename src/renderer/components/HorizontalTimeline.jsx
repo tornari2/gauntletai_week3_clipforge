@@ -22,7 +22,6 @@ const HorizontalTimeline = ({
   const [trimDragData, setTrimDragData] = useState(null)
   const [isDraggingClip, setIsDraggingClip] = useState(false)
   const [clipDragData, setClipDragData] = useState(null)
-  const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false)
   const [contextMenu, setContextMenu] = useState(null)
   const [dragOverTrack, setDragOverTrack] = useState(null)
   const [snapIndicator, setSnapIndicator] = useState(null)
@@ -101,28 +100,6 @@ const HorizontalTimeline = ({
     return { time: closestPoint, snapped: closestDistance < snapThreshold }
   }
 
-  // Playhead dragging
-  const handlePlayheadMouseDown = (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsDraggingPlayhead(true)
-  }
-
-  const handlePlayheadDrag = (e) => {
-    if (!isDraggingPlayhead || !timelineRef.current) return
-    
-    const rect = timelineRef.current.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const newTime = Math.max(0, Math.min((x / pixelsPerSecond), timeline.duration))
-    
-    if (onPlayheadMove) {
-      onPlayheadMove(newTime)
-    }
-  }
-
-  const handlePlayheadMouseUp = () => {
-    setIsDraggingPlayhead(false)
-  }
 
   // Trim handle dragging
   const handleTrimHandleMouseDown = (e, timelineClip, trackId, handleType) => {
@@ -327,18 +304,6 @@ const HorizontalTimeline = ({
     return () => window.removeEventListener('keypress', handleKeyPress)
   }, [onClipSplitAtPlayhead])
 
-  // Global mouse event listeners
-  useEffect(() => {
-    if (isDraggingPlayhead) {
-      document.addEventListener('mousemove', handlePlayheadDrag)
-      document.addEventListener('mouseup', handlePlayheadMouseUp)
-      return () => {
-        document.removeEventListener('mousemove', handlePlayheadDrag)
-        document.removeEventListener('mouseup', handlePlayheadMouseUp)
-      }
-    }
-  }, [isDraggingPlayhead, timeline.duration])
-
   useEffect(() => {
     if (isDraggingTrim) {
       document.addEventListener('mousemove', handleTrimDrag)
@@ -437,22 +402,6 @@ const HorizontalTimeline = ({
               })()}
             </div>
           )}
-          
-          {/* Playhead - only show when there are clips */}
-          {timeline.duration > 0 && (
-            <div 
-              className="timeline-playhead" 
-              style={{ left: (timeline.playheadPosition * pixelsPerSecond) + 'px' }}
-            >
-              <div 
-                className="playhead-handle" 
-                onMouseDown={handlePlayheadMouseDown}
-                title={`Playhead: ${formatTime(timeline.playheadPosition)}`}
-              />
-              <div className="playhead-line" />
-            </div>
-          )}
-          
           {/* Snap Indicator */}
           {snapIndicator && (
             <div 
