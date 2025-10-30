@@ -163,10 +163,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         const accumulatedTime = clips.slice(0, currentClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
         setCurrentTime(accumulatedTime)
         
-        // Update timeline playhead position
-        if (onPlayheadMove) {
-          onPlayheadMove(accumulatedTime)
-        }
+        // DON'T call onPlayheadMove here - causes infinite loop
       }
     }
 
@@ -181,10 +178,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
           const nextClipTimelineTime = clips.slice(0, nextIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
           setCurrentTime(nextClipTimelineTime)
           
-          // Update playhead to the start of the next clip's trimmed portion
-          if (onPlayheadMove) {
-            onPlayheadMove(nextClipTimelineTime)
-          }
+          // DON'T call onPlayheadMove here - causes infinite loop
           
           return nextIndex
         })
@@ -193,9 +187,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         setIsPlaying(false)
         shouldPlayRef.current = false
         setCurrentTime(totalDuration)
-        if (onPlayheadMove) {
-          onPlayheadMove(totalDuration)
-        }
+        // DON'T call onPlayheadMove here - causes infinite loop
       }
     }
 
