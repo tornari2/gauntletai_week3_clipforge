@@ -709,18 +709,19 @@ ipcMain.handle('export-timeline', async (event, options) => {
       // Apply resolution scaling and bitrate if not original
       if (resolution !== 'original') {
         const resolutionMap = {
-          '4K': { size: '3840:2160', bitrate: '15000k' },
-          '1080p': { size: '1920:1080', bitrate: '5000k' },
-          '720p': { size: '1280:720', bitrate: '2500k' },
-          '480p': { size: '854:480', bitrate: '1000k' },
-          '360p': { size: '640:360', bitrate: '500k' }
+          '4K': { width: 3840, height: 2160, bitrate: '15000k' },
+          '1080p': { width: 1920, height: 1080, bitrate: '5000k' },
+          '720p': { width: 1280, height: 720, bitrate: '2500k' },
+          '480p': { width: 854, height: 480, bitrate: '1000k' },
+          '360p': { width: 640, height: 360, bitrate: '500k' }
         }
         
         if (resolutionMap[resolution]) {
+          const res = resolutionMap[resolution]
           command = command
-            .size(resolutionMap[resolution].size)
-            .videoBitrate(resolutionMap[resolution].bitrate)
-          console.log(`Main: Scaling timeline to ${resolution} (${resolutionMap[resolution].size}) with bitrate ${resolutionMap[resolution].bitrate}`)
+            .size(`${res.width}x${res.height}`)
+            .videoBitrate(res.bitrate)
+          console.log(`Main: Scaling timeline to ${resolution} (${res.width}x${res.height}) with bitrate ${res.bitrate}`)
         }
       }
       
