@@ -14,6 +14,8 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
   const animationFrameRef = useRef(null) // For throttling playhead updates
   const currentTimeRef = useRef(0) // Track current time without causing re-renders
   const lastPlayheadPositionRef = useRef(null) // Track last playhead position to avoid unnecessary updates
+  const isDraggingSeekRef = useRef(false) // Track if user is dragging the seek bar
+  const currentVideoSrcRef = useRef(null) // Track current video source to avoid unnecessary reloads
 
   // Get clips from main track and calculate timeline info
   useEffect(() => {
@@ -57,11 +59,21 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     // Use custom local:// protocol
     const localSrc = `local://${currentClip.clip.filePath.startsWith('/') ? currentClip.clip.filePath : '/' + currentClip.clip.filePath}`
     
-    video.src = localSrc
-    video.load()
+    // Only reload if source changed or if we need to seek to a different position
+    const needsReload = currentVideoSrcRef.current !== localSrc || 
+                       (video.currentTime < currentClip.trimStart || video.currentTime > currentClip.trimEnd)
     
-    // Set initial position to trim start (always start at the beginning of the trimmed portion)
-    video.currentTime = currentClip.trimStart
+    if (needsReload) {
+      video.src = localSrc
+      video.load()
+      currentVideoSrcRef.current = localSrc
+    }
+    
+    // Set position to trim start (always start at the beginning of the trimmed portion)
+    // But only if we need to seek (not already in the right position)
+    if (Math.abs(video.currentTime - currentClip.trimStart) > 0.1) {
+      video.currentTime = currentClip.trimStart
+    }
     
     // If we should be playing, start playing after the video is ready
     if (shouldPlayRef.current) {
@@ -83,7 +95,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     if (!video) return
 
   const handleTimeUpdate = () => {
-    if (!currentClip) return
+    if (!currentClip || isDraggingSeekRef.current) return
     
     const videoTime = video.currentTime
     const timeInClip = videoTime - currentClip.trimStart
@@ -92,20 +104,30 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       if (videoTime >= currentClip.trimEnd) {
         // Move to next clip
         if (currentClipIndex < clips.length - 1) {
-          shouldPlayRef.current = isPlaying
-          setCurrentClipIndex(prev => prev + 1)
-          
-          // Calculate the timeline time for the start of the next clip's trimmed portion
           const nextClipIndex = currentClipIndex + 1
-          const nextClipTimelineTime = clips.slice(0, nextClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
-          setCurrentTime(nextClipTimelineTime)
-          currentTimeRef.current = nextClipTimelineTime
+          const nextClip = clips[nextClipIndex]
           
-          // Update playhead position (continues from current position, doesn't jump)
-          const firstClipStartTime = clips[0]?.startTime || 0
-          const nextPlayheadPosition = firstClipStartTime + nextClipTimelineTime
-          if (onPlayheadMove) {
-            onPlayheadMove(nextPlayheadPosition)
+          if (nextClip) {
+            // Immediately seek to next clip's start position if same source
+            // This prevents restart from beginning for split clips
+            if (nextClip.clip.filePath === currentClip.clip.filePath && currentVideoSrcRef.current) {
+              video.currentTime = nextClip.trimStart
+            }
+            
+            shouldPlayRef.current = isPlaying
+            setCurrentClipIndex(nextClipIndex)
+            
+            // Calculate the timeline time for the start of the next clip's trimmed portion
+            const nextClipTimelineTime = clips.slice(0, nextClipIndex).reduce((total, clip) => total + (clip.trimEnd - clip.trimStart), 0)
+            setCurrentTime(nextClipTimelineTime)
+            currentTimeRef.current = nextClipTimelineTime
+            
+            // Update playhead position (continues from current position, doesn't jump)
+            const firstClipStartTime = clips[0]?.startTime || 0
+            const nextPlayheadPosition = firstClipStartTime + nextClipTimelineTime
+            if (onPlayheadMove) {
+              onPlayheadMove(nextPlayheadPosition)
+            }
           }
         } else {
           // End of timeline
@@ -229,12 +251,63 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
   }
 
   const handleSeek = (e) => {
+    // Don't seek on click if we were dragging
+    if (isDraggingSeekRef.current) return
+    
     const video = videoRef.current
     if (!video || clips.length === 0) return
 
     const rect = e.currentTarget.getBoundingClientRect()
     const clickX = e.clientX - rect.left
     const newTimelineTime = (clickX / rect.width) * totalDuration
+    seekToTime(newTimelineTime)
+  }
+
+  const handleSeekMouseDown = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    isDraggingSeekRef.current = true
+    
+    // Find the seek bar element (might be currentTarget or parent)
+    const seekBar = e.currentTarget.classList.contains('video-seek-bar') 
+      ? e.currentTarget 
+      : (e.currentTarget.closest('.video-seek-bar') || e.currentTarget.parentElement)
+    if (!seekBar) return
+    
+    const rect = seekBar.getBoundingClientRect()
+    
+    const handleMouseMove = (moveEvent) => {
+      if (!isDraggingSeekRef.current) return
+      
+      const video = videoRef.current
+      if (!video || clips.length === 0) return
+      
+      const clickX = moveEvent.clientX - rect.left
+      const newTimelineTime = Math.max(0, Math.min((clickX / rect.width) * totalDuration, totalDuration))
+      seekToTime(newTimelineTime)
+    }
+    
+    const handleMouseUp = () => {
+      // Small delay to prevent onClick from firing
+      setTimeout(() => {
+        isDraggingSeekRef.current = false
+      }, 10)
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+    
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    
+    // Also seek immediately on mousedown
+    const clickX = e.clientX - rect.left
+    const newTimelineTime = Math.max(0, Math.min((clickX / rect.width) * totalDuration, totalDuration))
+    seekToTime(newTimelineTime)
+  }
+
+  const seekToTime = (newTimelineTime) => {
+    const video = videoRef.current
+    if (!video || clips.length === 0) return
     
     // Find which clip this time corresponds to
     let accumulatedTime = 0
@@ -258,12 +331,30 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     
     // Set video position
     const targetClip = clips[targetClipIndex]
-    video.currentTime = targetClip.trimStart + timeInTargetClip
-    setCurrentTime(newTimelineTime)
-    
-    // Update timeline playhead position
-    if (onPlayheadMove) {
-      onPlayheadMove(newTimelineTime)
+    if (targetClip) {
+      const targetVideoTime = targetClip.trimStart + timeInTargetClip
+      video.currentTime = targetVideoTime
+      setCurrentTime(newTimelineTime)
+      currentTimeRef.current = newTimelineTime
+      
+      // Update progress bar and handle in real-time during scrubbing
+      if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
+        const progress = (newTimelineTime / totalDuration) * 100
+        progressBarRef.current.style.width = `${progress}%`
+        seekHandleRef.current.style.left = `${progress}%`
+      }
+      
+      // Update time display
+      if (timeDisplayRef.current) {
+        timeDisplayRef.current.textContent = `${formatTime(newTimelineTime)} / ${formatTime(totalDuration)}`
+      }
+      
+      // Update playhead position
+      const firstClipStartTime = clips[0]?.startTime || 0
+      const playheadPosition = firstClipStartTime + newTimelineTime
+      if (onPlayheadMove) {
+        onPlayheadMove(playheadPosition)
+      }
     }
   }
 
@@ -348,6 +439,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
             <div 
               className="video-seek-bar"
               onClick={handleSeek}
+              onMouseDown={handleSeekMouseDown}
             >
               <div 
                 className="video-seek-progress"
@@ -361,6 +453,10 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
                 ref={seekHandleRef}
                 style={{
                   left: `${totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0}%`
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation()
+                  handleSeekMouseDown(e)
                 }}
               />
             </div>
