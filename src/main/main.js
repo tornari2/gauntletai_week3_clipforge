@@ -670,22 +670,6 @@ ipcMain.handle('export-timeline', async (event, options) => {
     console.log('Main: Exporting timeline with', clips.length, 'clips')
     
     return new Promise((resolve, reject) => {
-      // Create a complex filter for concatenating videos
-      let filterComplex = ''
-      
-      // Build filter complex for trimming each clip
-      clips.forEach((clip, index) => {
-        // Create trim filter for each clip
-        const trimFilter = `[${index}:v]trim=start=${clip.startTime}:duration=${clip.duration},setpts=PTS-STARTPTS[v${index}];[${index}:a]atrim=start=${clip.startTime}:duration=${clip.duration},asetpts=PTS-STARTPTS[a${index}]`
-        filterComplex += trimFilter + ';'
-      })
-      
-      // Concatenate all clips
-      const concatVideo = clips.map((_, index) => `[v${index}]`).join('') + `concat=n=${clips.length}:v=1:a=1[outv][outa]`
-      filterComplex += concatVideo
-      
-      console.log('Main: Filter complex:', filterComplex)
-      
       let command = ffmpeg()
       
       // Add all input files
@@ -693,11 +677,29 @@ ipcMain.handle('export-timeline', async (event, options) => {
         command.input(clip.filePath)
       })
       
+      // Build filter complex for trimming and concatenating
+      let filterComplex = ''
+      
+      // Trim video streams from each clip
+      clips.forEach((clip, index) => {
+        filterComplex += `[${index}:v]trim=start=${clip.startTime}:duration=${clip.duration},setpts=PTS-STARTPTS[v${index}];`
+      })
+      
+      // Concatenate video streams
+      const videoConcat = clips.map((_, index) => `[v${index}]`).join('') + `concat=n=${clips.length}:v=1:a=0[outv]`
+      filterComplex += videoConcat
+      
+      console.log('Main: Filter complex:', filterComplex)
+      
       // Apply filter complex
       command.complexFilter(filterComplex)
       
-      // Map outputs
-      command.outputOptions(['-map', '[outv]', '-map', '[outa]'])
+      // Map video output only (audio handled separately if present)
+      command.outputOptions(['-map', '[outv]'])
+      
+      // Try to map audio from first input as a simple approach
+      // This assumes all clips have similar audio, or at least the first one does
+      command.outputOptions(['-map', '0:a?'])
       
       // Set output file
       command.output(outputPath)
