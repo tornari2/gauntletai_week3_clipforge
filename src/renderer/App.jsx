@@ -279,8 +279,6 @@ function App() {
   }
 
   const handleTimelineClipTrim = (clipId, trimData) => {
-    console.log('App: Trimming timeline clip:', clipId, 'with data:', trimData)
-    
     // Update the timeline clip - ONLY update trim values, do NOT reposition
     setTimeline(prevTimeline => {
       const newTimeline = { ...prevTimeline }
@@ -322,29 +320,29 @@ function App() {
     }
   }
 
-  // Helper function to recalculate timeline duration based on trimmed clip durations
+  // Helper function to recalculate timeline duration based on FULL clip durations
   const recalculateTimelineDuration = (tracks) => {
     let maxEndTime = 0
     tracks.forEach(track => {
       let currentTime = 0
       track.clips.forEach(clip => {
-        // Use trimmed duration (active region length) for spacing
-        const trimmedDuration = clip.trimEnd - clip.trimStart
-        currentTime += trimmedDuration
+        // Use FULL duration for spacing to prevent overlap
+        const fullDuration = clip.clip.duration
+        currentTime += fullDuration
         maxEndTime = Math.max(maxEndTime, currentTime)
       })
     })
     return maxEndTime
   }
 
-  // Helper function to reposition clips in a track end-to-end using trimmed durations
+  // Helper function to reposition clips in a track end-to-end using FULL durations
   const repositionClipsInTrack = (clips) => {
     let currentTime = 0
     return clips.map(clip => {
       const newClip = { ...clip, startTime: currentTime }
-      // Use trimmed duration (active region length) for spacing
-      const trimmedDuration = clip.trimEnd - clip.trimStart
-      currentTime += trimmedDuration
+      // Use FULL duration for spacing to prevent overlap
+      const fullDuration = clip.clip.duration
+      currentTime += fullDuration
       return newClip
     })
   }
@@ -612,15 +610,18 @@ function App() {
       // Insert into target track at specified index
       targetTrack.clips.splice(targetIndex, 0, clip)
       
-      // Reposition clips in both tracks
-      sourceTrack.clips = repositionClipsInTrack(sourceTrack.clips)
-      
-      if (sourceTrackId !== targetTrackId) {
+      // Reposition clips in the affected track(s) AFTER both remove and insert are done
+      if (sourceTrackId === targetTrackId) {
+        // Same track - only reposition once
+        targetTrack.clips = repositionClipsInTrack(targetTrack.clips)
+      } else {
+        // Different tracks - reposition both
+        sourceTrack.clips = repositionClipsInTrack(sourceTrack.clips)
         targetTrack.clips = repositionClipsInTrack(targetTrack.clips)
       }
       
-      // Recalculate timeline duration
-      newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
+      // DO NOT recalculate timeline duration - just reorganizing clips shouldn't change total duration
+      // Timeline duration only changes when clips are added, removed, or split
       
       return newTimeline
     })

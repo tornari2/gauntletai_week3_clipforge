@@ -140,13 +140,10 @@ const HorizontalTimeline = ({
     let newTrimStart = trimDragData.originalTrimStart
     let newTrimEnd = trimDragData.originalTrimEnd
     
-    // Get the original split boundaries if this is a split clip
-    const originalSplitStart = trimDragData.clip.originalTrimStart
-    const originalSplitEnd = trimDragData.clip.originalTrimEnd
-    
-    // Constrain to original split boundaries if they exist (for split clips)
-    const minTrimStart = originalSplitStart !== undefined ? originalSplitStart : 0
-    const maxTrimEnd = originalSplitEnd !== undefined ? originalSplitEnd : trimDragData.clip.clip.duration
+    // For split clips, use the split clip's own duration as the limit (not the original video)
+    // For regular clips, use the full duration
+    const minTrimStart = 0
+    const maxTrimEnd = trimDragData.clip.clip.duration
     
     if (trimDragData.handleType === 'left') {
       // Left handle: adjust trimStart
@@ -246,12 +243,54 @@ const HorizontalTimeline = ({
       // Calculate target index in track
       const targetTrack = timeline.tracks.find(t => t.id === targetTrackId)
       if (targetTrack) {
-        // Find where to insert based on time
+        // Find where to insert based on the center of where we're dropping
         let targetIndex = 0
-        for (let i = 0; i < targetTrack.clips.length; i++) {
-          const clipActiveStart = targetTrack.clips[i].startTime + targetTrack.clips[i].trimStart
-          if (snappedTime > clipActiveStart && targetTrack.clips[i].clipId !== clipDragData.clip.clipId) {
-            targetIndex = i + 1
+        
+        // If dropping in the same track as dragging from, need to handle carefully
+        if (targetTrackId === clipDragData.trackId) {
+          // Find current index of dragged clip
+          const currentIndex = targetTrack.clips.findIndex(c => c.clipId === clipDragData.clip.clipId)
+          
+          // Calculate target index based on drop position
+          // We compare against ALL clips including the dragged one, then adjust
+          for (let i = 0; i < targetTrack.clips.length; i++) {
+            const clip = targetTrack.clips[i]
+            const clipCenter = clip.startTime + (clip.trimEnd - clip.trimStart) / 2
+            
+            if (snappedTime > clipCenter) {
+              targetIndex = i + 1
+            }
+          }
+          
+          // The targetIndex is calculated as if the dragged clip isn't there
+          // But it IS there, so we need to adjust
+          // If we're inserting AFTER where we currently are, we need to decrease by 1
+          // because the clip will be removed first
+          if (targetIndex > currentIndex) {
+            targetIndex = targetIndex - 1
+          }
+          
+          // If target index equals current index, don't reposition (no change needed)
+          if (targetIndex === currentIndex) {
+            // Clip stays in same position - no need to call onClipReposition
+            // Just select the clip
+            if (onClipSelect) {
+              onClipSelect(clipDragData.clip)
+            }
+            setSnapIndicator(null)
+            setIsDraggingClip(false)
+            setClipDragData(null)
+            return
+          }
+        } else {
+          // Moving to different track - simpler logic
+          for (let i = 0; i < targetTrack.clips.length; i++) {
+            const clip = targetTrack.clips[i]
+            const clipCenter = clip.startTime + (clip.trimEnd - clip.trimStart) / 2
+            
+            if (snappedTime > clipCenter) {
+              targetIndex = i + 1
+            }
           }
         }
         
@@ -479,8 +518,9 @@ const HorizontalTimeline = ({
                     
                     const fullDuration = timelineClip.clip.duration || 0
                     const trimmedDuration = Math.max(0, (timelineClip.trimEnd || 0) - (timelineClip.trimStart || 0))
-                    // Use full duration for clip bar width to show trim overlays
+                    // Use FULL duration for clip bar width to show trim overlays
                     const clipWidthPx = Math.max(0, fullDuration * pixelsPerSecond)
+                    // Position clip bar at startTime
                     const clipLeftPx = Math.max(0, (timelineClip.startTime || 0) * pixelsPerSecond)
                     
                     // Calculate trim overlay positions (relative to full duration)
