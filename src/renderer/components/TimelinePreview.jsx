@@ -519,48 +519,39 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
             }
           }
         } else {
-          // End of timeline - reset to beginning
-          console.log('TimelinePreview: End of timeline reached in timeupdate - resetting playhead to beginning')
+          // End of timeline - stop at the end
+          console.log('TimelinePreview: End of timeline reached in timeupdate - stopping at end')
           isTransitioningRef.current = false
           video.pause()
           setIsPlaying(false)
           shouldPlayRef.current = false
           
-          // Reset to beginning of first clip's active region
+          // Position playhead at the end of the last clip's active region
           if (clips.length > 0) {
-            const firstClip = clips[0]
-            const firstClipStartTime = firstClip.startTime || 0
-            const firstActiveStart = firstClipStartTime + firstClip.trimStart
+            const lastClip = clips[clips.length - 1]
+            const lastClipActiveEnd = lastClip.startTime + lastClip.trimEnd
             
-            // Reset timeline time to 0 (beginning of active region)
-            setCurrentTime(0)
-            currentTimeRef.current = 0
-            setCurrentClipIndex(0)
-            actualClipIndexRef.current = 0
+            // Set timeline time to total duration (end of playback)
+            setCurrentTime(totalDuration)
+            currentTimeRef.current = totalDuration
             
-            // Reset playhead to beginning of first clip's active region
+            // Position playhead at end of last clip's active region
             if (onPlayheadMove) {
-              onPlayheadMove(firstActiveStart)
+              onPlayheadMove(lastClipActiveEnd)
             }
             
-            // Seek video to beginning of first clip's active region
-            const seekPosition = firstClip.clip.videoOffsetStart !== undefined 
-              ? firstClip.clip.videoOffsetStart 
-              : firstClip.trimStart
-            video.currentTime = seekPosition
-            
-            // Update progress bar
+            // Update progress bar to show 100%
             if (progressBarRef.current && seekHandleRef.current) {
-              progressBarRef.current.style.width = '0%'
-              seekHandleRef.current.style.left = '0%'
+              progressBarRef.current.style.width = '100%'
+              seekHandleRef.current.style.left = '100%'
             }
             
             // Update time display
             if (timeDisplayRef.current) {
-              timeDisplayRef.current.textContent = `${formatTime(0)} / ${formatTime(totalDuration)}`
+              timeDisplayRef.current.textContent = `${formatTime(totalDuration)} / ${formatTime(totalDuration)}`
             }
             
-            console.log('  -> Playhead reset to:', firstActiveStart)
+            console.log('  -> Playhead at end of timeline:', lastClipActiveEnd)
           } else {
             // No clips - reset to 0
             setCurrentTime(0)
@@ -694,45 +685,36 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
           onPlayheadMove(nextClipActiveStart)
         }
       } else {
-        console.log('TimelinePreview: End of timeline reached - resetting playhead to beginning')
+        console.log('TimelinePreview: End of timeline reached - stopping at end')
         setIsPlaying(false)
         shouldPlayRef.current = false
         
-        // Reset to beginning of first clip's active region
+        // Position playhead at the end of the last clip's active region
         if (clips.length > 0) {
-          const firstClip = clips[0]
-          const firstClipStartTime = firstClip.startTime || 0
-          const firstActiveStart = firstClipStartTime + firstClip.trimStart
+          const lastClip = clips[clips.length - 1]
+          const lastClipActiveEnd = lastClip.startTime + lastClip.trimEnd
           
-          // Reset timeline time to 0 (beginning of active region)
-          setCurrentTime(0)
-          currentTimeRef.current = 0
-          setCurrentClipIndex(0)
-          actualClipIndexRef.current = 0
+          // Set timeline time to total duration (end of playback)
+          setCurrentTime(totalDuration)
+          currentTimeRef.current = totalDuration
           
-          // Reset playhead to beginning of first clip's active region
+          // Position playhead at end of last clip's active region
           if (onPlayheadMove) {
-            onPlayheadMove(firstActiveStart)
+            onPlayheadMove(lastClipActiveEnd)
           }
           
-          // Seek video to beginning of first clip's active region
-          const seekPosition = firstClip.clip.videoOffsetStart !== undefined 
-            ? firstClip.clip.videoOffsetStart 
-            : firstClip.trimStart
-          video.currentTime = seekPosition
-          
-          // Update progress bar
+          // Update progress bar to show 100%
           if (progressBarRef.current && seekHandleRef.current) {
-            progressBarRef.current.style.width = '0%'
-            seekHandleRef.current.style.left = '0%'
+            progressBarRef.current.style.width = '100%'
+            seekHandleRef.current.style.left = '100%'
           }
           
           // Update time display
           if (timeDisplayRef.current) {
-            timeDisplayRef.current.textContent = `${formatTime(0)} / ${formatTime(totalDuration)}`
+            timeDisplayRef.current.textContent = `${formatTime(totalDuration)} / ${formatTime(totalDuration)}`
           }
           
-          console.log('  -> Playhead reset to:', firstActiveStart)
+          console.log('  -> Playhead at end of timeline:', lastClipActiveEnd)
         } else {
           // No clips - reset to 0
           setCurrentTime(0)
