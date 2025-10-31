@@ -24,7 +24,7 @@ const SourceSelector = ({
     <div className="source-selector">
       <div className="source-group">
         <label className="source-label">
-          📺 Video Source
+          Video Source
         </label>
         <select 
           className="source-select"
@@ -34,7 +34,7 @@ const SourceSelector = ({
           <option value="">Select screen or window...</option>
           {videoSources.map(source => (
             <option key={source.id} value={source.id}>
-              {source.type === 'screen' ? '🖥️' : '🪟'} {source.name}
+              {source.name}
             </option>
           ))}
         </select>
@@ -53,7 +53,7 @@ const SourceSelector = ({
 
       <div className="source-group">
         <label className="source-label">
-          🎤 Audio Source
+          Audio Source
         </label>
         <select 
           className="source-select"
@@ -63,14 +63,14 @@ const SourceSelector = ({
           <option value="">Select microphone...</option>
           {audioSources.map(source => (
             <option key={source.id} value={source.id}>
-              🎤 {source.name}
+              {source.name}
             </option>
           ))}
         </select>
         
         {selectedAudioSource && (
           <div className="source-info">
-            <span className="source-name">🎤 {selectedAudioSource.name}</span>
+            <span className="source-name">{selectedAudioSource.name}</span>
           </div>
         )}
       </div>

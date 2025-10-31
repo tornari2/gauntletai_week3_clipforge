@@ -3,7 +3,6 @@ import MediaLibrary from './components/MediaLibrary'
 import VideoPlayer from './components/VideoPlayer'
 import TimelinePreview from './components/TimelinePreview'
 import ExportButton from './components/ExportButton'
-import RecordingPanel from './components/RecordingPanel'
 import HorizontalTimeline from './components/HorizontalTimeline'
 
 function App() {
@@ -11,6 +10,7 @@ function App() {
   const [selectedClip, setSelectedClip] = useState(null)
   const [editableClip, setEditableClip] = useState(null) // Clip that can be edited
   const [lastDropTime, setLastDropTime] = useState(0) // Track last drop time to prevent duplicates
+  const [showExportModal, setShowExportModal] = useState(false)
   
   // Timeline state
   const [timeline, setTimeline] = useState({
@@ -891,6 +891,7 @@ function App() {
               onClipDelete={handleClipDelete}
               onVideoImported={handleVideoImported}
               onClipDragStart={handleClipDragStart}
+              onRecordingComplete={handleRecordingComplete}
             />
           </div>
           
@@ -923,16 +924,33 @@ function App() {
                 onZoomOut={handleZoomOut}
                 onZoomReset={handleZoomReset}
                 selectedClip={editableClip}
+                onExportClick={() => setShowExportModal(true)}
               />
-            </div>
-            
-            <div className="controls-section">
-              <RecordingPanel onRecordingComplete={handleRecordingComplete} />
-              <ExportButton selectedClip={editableClip} timeline={timeline} />
             </div>
           </div>
         </div>
       </main>
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="modal-overlay" onClick={() => setShowExportModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Export Video</h3>
+              <button 
+                className="modal-close"
+                onClick={() => setShowExportModal(false)}
+                title="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <ExportButton selectedClip={editableClip} timeline={timeline} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

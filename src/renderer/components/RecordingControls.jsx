@@ -4,6 +4,8 @@ const RecordingControls = ({
   selectedVideoSource, 
   selectedAudioSource, 
   onRecordingComplete,
+  onRecordingStarted,
+  onRecordingTimeUpdate,
   disabled = false
 }) => {
   const [isRecording, setIsRecording] = useState(false)
@@ -19,6 +21,57 @@ const RecordingControls = ({
   const pipAnimationFrameRef = useRef(null)
   const pipVideoElementsRef = useRef(null)
   const pipCanvasRef = useRef(null)
+  const stopRecordingCallbackRef = useRef(null)
+
+  // Define stopRecording at the top level so it can be referenced
+  const stopRecording = async () => {
+    console.log('RecordingControls: stopRecording called, mediaRecorder exists:', !!mediaRecorderRef.current)
+    if (mediaRecorderRef.current) {
+      console.log('RecordingControls: MediaRecorder state:', mediaRecorderRef.current.state)
+      
+      // Always try to stop, regardless of state (in case state is inconsistent)
+      console.log('RecordingControls: Stopping mediaRecorder...')
+      try {
+        // Stop the MediaRecorder
+        if (mediaRecorderRef.current.state === 'recording' || mediaRecorderRef.current.state === 'paused') {
+          mediaRecorderRef.current.stop()
+          console.log('RecordingControls: stop() called successfully')
+        } else {
+          console.log('RecordingControls: MediaRecorder already stopped, state:', mediaRecorderRef.current.state)
+          // Even if already stopped, trigger cleanup
+          if (mediaRecorderRef.current.onstop) {
+            mediaRecorderRef.current.onstop()
+          }
+        }
+      } catch (err) {
+        console.error('RecordingControls: Error calling stop():', err)
+        // Force cleanup even if stop() fails
+        setIsRecording(false)
+        setRecordingType(null)
+      }
+      
+      // Stop stream tracks immediately (don't wait for onstop)
+      if (streamRef.current) {
+        console.log('RecordingControls: Stopping stream tracks immediately...')
+        if (streamRef.current._cleanup) {
+          streamRef.current._cleanup()
+        } else if (streamRef.current.getTracks) {
+          streamRef.current.getTracks().forEach(track => {
+            if (track.readyState !== 'ended') {
+              track.stop()
+              console.log('RecordingControls: Stopped track:', track.kind)
+            }
+          })
+        }
+      }
+      
+    } else {
+      console.log('RecordingControls: No mediaRecorder to stop')
+      setIsRecording(false)
+      setRecordingType(null)
+      setRecordingTime(0)
+    }
+  }
 
   // Cleanup on unmount
   useEffect(() => {
@@ -40,6 +93,13 @@ const RecordingControls = ({
       }
     }
   }, [])
+
+  // Notify parent of recording time updates
+  useEffect(() => {
+    if (isRecording && onRecordingTimeUpdate) {
+      onRecordingTimeUpdate(recordingTime)
+    }
+  }, [recordingTime, isRecording])
 
   const startRecording = async (type) => {
     try {
@@ -98,6 +158,47 @@ const RecordingControls = ({
       mediaRecorder.onstop = () => {
         console.log('RecordingControls: Recording stopped, chunks:', recordedChunksRef.current.length)
         
+        // Stop all tracks and clean up resources
+        if (streamRef.current) {
+          console.log('RecordingControls: Cleaning up stream...')
+          // Handle PiP recording cleanup (has custom cleanup function)
+          if (streamRef.current._cleanup) {
+            streamRef.current._cleanup()
+          } else if (streamRef.current && streamRef.current.getTracks) {
+            // Standard cleanup for other recording types
+            streamRef.current.getTracks().forEach(track => {
+              track.stop()
+              console.log('RecordingControls: Stopped track:', track.kind, track.label)
+            })
+          }
+          
+          streamRef.current = null
+        }
+        
+        // Clear timer
+        if (recordingIntervalRef.current) {
+          clearInterval(recordingIntervalRef.current)
+          recordingIntervalRef.current = null
+        }
+        
+        // Clean up PiP animation frame
+        if (pipAnimationFrameRef.current) {
+          cancelAnimationFrame(pipAnimationFrameRef.current)
+          pipAnimationFrameRef.current = null
+        }
+        
+        // Set state to not recording BEFORE processing
+        setIsRecording(false)
+        setRecordingType(null)
+        
+        // Validate we have recorded data
+        if (recordedChunksRef.current.length === 0) {
+          console.error('RecordingControls: No data recorded!')
+          setError('Recording failed: No data was recorded')
+          setRecordingTime(0)
+          return
+        }
+        
         // Calculate final duration using precise timing
         const finalDuration = recordingStartTimeRef.current ? 
           Math.floor((Date.now() - recordingStartTimeRef.current) / 1000) : 
@@ -105,8 +206,26 @@ const RecordingControls = ({
           
         console.log('RecordingControls: Total recording time:', finalDuration, 'seconds')
         
+        // Ensure we have at least 1 second of recording
+        if (finalDuration < 1) {
+          console.error('RecordingControls: Recording too short:', finalDuration)
+          setError('Recording too short (minimum 1 second)')
+          setIsRecording(false)
+          setRecordingType(null)
+          return
+        }
+        
         const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' })
         console.log('RecordingControls: Blob created, size:', blob.size, 'bytes')
+        
+        // Validate blob size
+        if (blob.size === 0) {
+          console.error('RecordingControls: Blob is empty!')
+          setError('Recording failed: File is empty')
+          setIsRecording(false)
+          setRecordingType(null)
+          return
+        }
         
         // Generate filename with timestamp
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
@@ -126,6 +245,12 @@ const RecordingControls = ({
       // Start recording with more frequent data collection for better metadata
       mediaRecorder.start(500) // Collect data every 500ms for better duration accuracy
       setIsRecording(true)
+      
+      // Notify parent that recording has started (to close modal)
+      if (onRecordingStarted) {
+        console.log('RecordingControls: Calling onRecordingStarted with type:', type)
+        onRecordingStarted(type, stopRecording)
+      }
       
       // Start timer with more precise timing
       recordingStartTimeRef.current = Date.now()
@@ -362,34 +487,6 @@ const RecordingControls = ({
     return compositeStream
   }
 
-  const stopRecording = async () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop()
-      
-      // Stop all tracks and clean up resources
-      if (streamRef.current) {
-        // Handle PiP recording cleanup (has custom cleanup function)
-        if (streamRef.current._cleanup) {
-          streamRef.current._cleanup()
-        } else if (streamRef.current && streamRef.current.getTracks) {
-          // Standard cleanup for other recording types
-          streamRef.current.getTracks().forEach(track => track.stop())
-        }
-        
-        streamRef.current = null
-      }
-      
-      // Clear timer
-      if (recordingIntervalRef.current) {
-        clearInterval(recordingIntervalRef.current)
-        recordingIntervalRef.current = null
-      }
-      
-      setIsRecording(false)
-      setRecordingType(null)
-    }
-  }
-
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
@@ -412,25 +509,25 @@ const RecordingControls = ({
         <button
           className={`btn ${isRecording && recordingType === 'screen' ? 'btn-danger' : 'btn-primary'}`}
           onClick={() => isRecording ? stopRecording() : startRecording('screen')}
-          disabled={(!canRecordScreen && !isRecording) || disabled}
+          disabled={(isRecording && recordingType !== 'screen') || (!canRecordScreen && !isRecording) || (disabled && !isRecording)}
         >
-          {isRecording && recordingType === 'screen' ? '⏹️ Stop Screen' : '🖥️ Record Screen'}
+          {isRecording && recordingType === 'screen' ? 'Stop Screen' : 'Record Screen'}
         </button>
         
         <button
           className={`btn ${isRecording && recordingType === 'webcam' ? 'btn-danger' : 'btn-primary'}`}
           onClick={() => isRecording ? stopRecording() : startRecording('webcam')}
-          disabled={(!canRecordWebcam && !isRecording) || disabled}
+          disabled={(isRecording && recordingType !== 'webcam') || (!canRecordWebcam && !isRecording) || (disabled && !isRecording)}
         >
-          {isRecording && recordingType === 'webcam' ? '⏹️ Stop Webcam' : '📹 Record Webcam'}
+          {isRecording && recordingType === 'webcam' ? 'Stop Webcam' : 'Record Webcam'}
         </button>
         
         <button
           className={`btn ${isRecording && recordingType === 'pip' ? 'btn-danger' : 'btn-primary'}`}
           onClick={() => isRecording ? stopRecording() : startRecording('pip')}
-          disabled={(!canRecordPip && !isRecording) || disabled}
+          disabled={(isRecording && recordingType !== 'pip') || (!canRecordPip && !isRecording) || (disabled && !isRecording)}
         >
-          {isRecording && recordingType === 'pip' ? '⏹️ Stop PiP' : '🎬 Record PiP'}
+          {isRecording && recordingType === 'pip' ? 'Stop PiP' : 'Record PiP'}
         </button>
       </div>
       
@@ -440,7 +537,7 @@ const RecordingControls = ({
             <div className="recording-dot"></div>
             <span>Recording {recordingType.toUpperCase()}</span>
             {recordingType === 'pip' && (
-              <span className="pip-indicator">📹+🖥️</span>
+              <span className="pip-indicator">Webcam + Screen</span>
             )}
           </div>
           <div className="recording-timer">

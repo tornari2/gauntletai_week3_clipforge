@@ -107,13 +107,38 @@ const ExportButton = ({ selectedClip, timeline }) => {
           ? timelineClip.clip.videoOffsetEnd 
           : timelineClip.trimEnd
         
+        let filePath = timelineClip.clip.originalFilePath || timelineClip.clip.filePath
+        
+        // Normalize file path - remove any protocol prefixes
+        if (filePath.startsWith('local://')) {
+          filePath = filePath.replace('local://', '')
+        }
+        if (filePath.startsWith('file://')) {
+          filePath = filePath.replace('file://', '')
+        }
+        
+        console.log('ExportButton: Preparing clip:', {
+          clipId: timelineClip.clip.id,
+          fileName: timelineClip.clip.fileName,
+          filePath: filePath,
+          originalFilePath: timelineClip.clip.originalFilePath,
+          rawFilePath: timelineClip.clip.filePath,
+          hasFilePath: !!timelineClip.clip.filePath,
+          startTime: startTime,
+          endTime: endTime,
+          duration: endTime - startTime,
+          isRecording: timelineClip.clip.isRecording
+        })
+        
         return {
-          filePath: timelineClip.clip.originalFilePath || timelineClip.clip.filePath,
+          filePath: filePath,
           startTime: startTime,
           duration: endTime - startTime,
           timelineStart: timelineClip.startTime
         }
       })
+      
+      console.log('ExportButton: Final clips data:', JSON.stringify(clipsData, null, 2))
 
       // Call export function with multiple clips
       await window.electronAPI.exportTimeline({
@@ -173,7 +198,6 @@ const ExportButton = ({ selectedClip, timeline }) => {
   if (clips.length === 0) {
     return (
       <div className="export-button">
-        <h3>Export Video</h3>
         <p className="text-muted">Add clips to the timeline to enable export</p>
       </div>
     )
@@ -181,7 +205,6 @@ const ExportButton = ({ selectedClip, timeline }) => {
 
   return (
     <div className="export-button">
-      <h3>Export Video</h3>
       <p className="text-muted">
         Exporting: {clips.length} clip{clips.length !== 1 ? 's' : ''} from timeline
       </p>

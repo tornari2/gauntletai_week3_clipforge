@@ -1,7 +1,15 @@
-import React from 'react'
+import React, { useState, useCallback } from 'react'
 import FileImport from './FileImport'
+import RecordingPanel from './RecordingPanel'
 
-const MediaLibrary = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideoImported, onClipDragStart }) => {
+const MediaLibrary = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideoImported, onClipDragStart, onRecordingComplete }) => {
+  const [showRecordingModal, setShowRecordingModal] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordingType, setRecordingType] = useState(null)
+  const [recordingTime, setRecordingTime] = useState(0)
+  const stopRecordingRef = React.useRef(null)
+  const recordingIntervalRef = React.useRef(null)
+
   const formatDuration = (seconds) => {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
@@ -20,6 +28,53 @@ const MediaLibrary = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideo
     if (!width || !height) return 'Unknown'
     return `${width}×${height}`
   }
+
+  const handleRecordingComplete = (recordingData) => {
+    setShowRecordingModal(false)
+    setIsRecording(false)
+    setRecordingType(null)
+    setRecordingTime(0)
+    stopRecordingRef.current = null
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current)
+      recordingIntervalRef.current = null
+    }
+    if (onRecordingComplete) {
+      onRecordingComplete(recordingData)
+    }
+  }
+  
+  const handleRecordingStarted = useCallback((type, stopFn) => {
+    // Close modal when recording starts
+    console.log('MediaLibrary: Recording started, type:', type, 'stopFn:', typeof stopFn)
+    setShowRecordingModal(false)
+    setIsRecording(true)
+    setRecordingType(type)
+    setRecordingTime(0)
+    stopRecordingRef.current = stopFn
+    
+    // Start timer in MediaLibrary
+    const startTime = Date.now()
+    recordingIntervalRef.current = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000)
+      setRecordingTime(elapsed)
+    }, 100)
+  }, [])
+  
+  const handleRecordingTimeUpdate = useCallback((time) => {
+    // This is called from RecordingControls, but we're managing timer here now
+    // Keeping for compatibility but timer is managed in handleRecordingStarted
+  }, [])
+  
+  const handleStopRecording = useCallback(() => {
+    console.log('MediaLibrary: Stop button clicked, stopFn exists:', !!stopRecordingRef.current)
+    if (stopRecordingRef.current) {
+      console.log('MediaLibrary: Calling stop function')
+      stopRecordingRef.current()
+    } else {
+      console.error('MediaLibrary: No stop function available!')
+    }
+  }, [])
 
   // Listen for dropped video events from main process
   React.useEffect(() => {
@@ -47,10 +102,9 @@ const MediaLibrary = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideo
   }, [onVideoImported])
 
   return (
-    <div className="timeline">
-      <div className="timeline-header">
+    <div className="timeline media-library">
+      <div className="timeline-header media-library-header">
         <h3 className="timeline-title">Media Library</h3>
-        <FileImport onVideoImported={onVideoImported} />
       </div>
       
       {clips.length === 0 ? (
@@ -103,11 +157,11 @@ const MediaLibrary = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideo
                   </div>
                   <div className="timeline-clip-metadata">
                     <div className="metadata-item">
-                      <span className="metadata-label">Duration:</span>
+                      <span className="metadata-label">Dur:</span>
                       <span className="metadata-value">{formatDuration(clip.duration)}</span>
                     </div>
                     <div className="metadata-item">
-                      <span className="metadata-label">Resolution:</span>
+                      <span className="metadata-label">Res:</span>
                       <span className="metadata-value">{formatResolution(clip.width, clip.height)}</span>
                     </div>
                     <div className="metadata-item">
@@ -135,6 +189,66 @@ const MediaLibrary = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideo
           ))}
         </div>
       )}
+      
+      <div style={{ padding: '16px', borderTop: '1px solid #333' }}>
+        <FileImport onVideoImported={onVideoImported} />
+        <div className="file-import-header" style={{ marginTop: '12px' }}>
+          {isRecording ? (
+            <button 
+              className="btn btn-danger"
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                handleStopRecording()
+              }}
+              style={{ 
+                backgroundColor: '#dc3545', 
+                borderColor: '#dc3545',
+                cursor: 'pointer',
+                pointerEvents: 'auto',
+                zIndex: 1000
+              }}
+            >
+              🔴 Stop Recording ({recordingType}) - {formatDuration(recordingTime)}
+            </button>
+          ) : (
+            <button 
+              className="btn btn-record"
+              onClick={() => setShowRecordingModal(true)}
+            >
+              Record Video
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Recording Modal - Keep RecordingPanel ALWAYS mounted, just hide the modal */}
+      <div 
+        className="modal-overlay" 
+        style={{ display: showRecordingModal && !isRecording ? 'flex' : 'none' }}
+        onClick={() => setShowRecordingModal(false)}
+      >
+        <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h3>Recording</h3>
+            <button 
+              className="modal-close"
+              onClick={() => setShowRecordingModal(false)}
+              title="Close"
+            >
+              ×
+            </button>
+          </div>
+          <div className="modal-body">
+            <RecordingPanel 
+              key="recording-panel"
+              onRecordingComplete={handleRecordingComplete}
+              onRecordingStarted={handleRecordingStarted}
+              onRecordingTimeUpdate={handleRecordingTimeUpdate}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

@@ -15,7 +15,8 @@ const HorizontalTimeline = ({
   onZoomIn,
   onZoomOut,
   onZoomReset,
-  selectedClip 
+  selectedClip,
+  onExportClick
 }) => {
   const [isDraggingTrim, setIsDraggingTrim] = useState(false)
   const [trimDragData, setTrimDragData] = useState(null)
@@ -554,7 +555,7 @@ const HorizontalTimeline = ({
         <h3>Timeline</h3>
         <div className="timeline-controls">
           <div className="timeline-duration">
-            {timeline.duration > 0 ? `Duration: ${formatTime(timeline.duration)}` : 'Drop clips to begin'}
+            {timeline.duration > 0 ? `Duration: ${formatTime(timeline.duration)}` : null}
           </div>
           {timeline.duration > 0 && (
             <div className="zoom-controls">
@@ -569,6 +570,13 @@ const HorizontalTimeline = ({
               <button className="btn-zoom" onClick={handleZoomInClick} title="Zoom In">+</button>
             </div>
           )}
+          <button 
+            className="btn btn-success"
+            onClick={timeline.duration > 0 ? onExportClick : undefined}
+            disabled={timeline.duration === 0}
+          >
+            Export Video
+          </button>
         </div>
       </div>
       

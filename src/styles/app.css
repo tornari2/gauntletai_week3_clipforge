@@ -30,15 +30,21 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--bg-primary);
   color: var(--text-primary);
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
+  height: 100vh;
+}
+
+html {
+  height: 100%;
+  overflow: hidden;
 }
 
 /* App Layout */
 .app {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .app-header {
@@ -59,12 +65,17 @@ body {
 .file-import-header {
   display: flex;
   align-items: center;
+  width: 100%;
 }
 
 .file-import-header .btn {
   font-size: 14px;
   padding: 8px 16px;
   height: auto;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .app-main {
@@ -72,16 +83,18 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .app-layout {
   display: flex;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar {
-  width: 300px;
+  width: 250px;
   background-color: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -94,7 +107,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 /* Section Layouts */
@@ -103,8 +116,9 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 300px;
-  flex-shrink: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .controls-section {
@@ -166,6 +180,89 @@ body {
 
 .btn-secondary:hover:not(:disabled) {
   background-color: #4a4a4a;
+}
+
+.btn-record {
+  background-color: #ff6b35;
+  color: white;
+}
+
+.btn-record:hover:not(:disabled) {
+  background-color: #e55a2b;
+  transform: translateY(-1px);
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-content {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  max-width: 800px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.modal-header {
+  background-color: var(--bg-tertiary);
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.modal-close:hover {
+  background-color: var(--bg-secondary);
+}
+
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-body .recording-panel {
+  margin-bottom: 0;
 }
 
 /* Input Styles */
@@ -304,11 +401,16 @@ body {
 
 .timeline-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
   margin-bottom: 16px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border-color);
+}
+
+/* Media Library header - centered */
+.media-library-header {
+  justify-content: center;
 }
 
 .timeline-title {
@@ -382,13 +484,13 @@ body {
   background-color: var(--bg-tertiary);
   border: 2px solid var(--border-color);
   border-radius: var(--border-radius);
-  padding: 12px;
+  padding: 10px;
   cursor: pointer;
   transition: all 0.2s ease;
   position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-height: 90px;
 }
 
@@ -434,7 +536,7 @@ body {
 }
 
 .timeline-clip-thumbnail {
-  width: 80px;
+  width: 70px;
   height: 50px;
   background-color: var(--bg-primary);
   border-radius: 4px;
@@ -485,25 +587,28 @@ body {
 .timeline-clip-metadata {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  min-width: 120px;
-  flex-shrink: 0;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  flex-shrink: 1;
 }
 
 .metadata-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 10px;
-  line-height: 1.3;
+  font-size: 9px;
+  line-height: 1.2;
+  gap: 2px;
+  min-width: 0;
 }
 
 .metadata-label {
   color: var(--text-muted);
   font-weight: 500;
   flex-shrink: 0;
-  margin-right: 6px;
-  font-size: 9px;
+  font-size: 8px;
+  min-width: 35px;
 }
 
 .metadata-value {
@@ -511,7 +616,11 @@ body {
   font-weight: 400;
   text-align: right;
   flex: 1;
-  font-size: 10px;
+  font-size: 9px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .timeline-clip-content {
@@ -531,8 +640,9 @@ body {
 .timeline-clip-body {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex: 1;
+  min-width: 0;
 }
 
 .timeline-clip-delete {
@@ -1244,6 +1354,8 @@ body {
   min-width: 120px;
   font-size: 13px;
   padding: 8px 12px;
+  justify-content: center;
+  text-align: center;
 }
 
 .btn-danger {
@@ -1307,8 +1419,11 @@ body {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius);
-  margin-bottom: 16px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .timeline-header {
@@ -1318,6 +1433,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+/* Media Library header - centered */
+.media-library-header {
+  justify-content: center;
 }
 
 .timeline-header h3 {
@@ -1386,7 +1506,8 @@ body {
 .timeline-scroll-container {
   overflow-x: auto;
   overflow-y: hidden;
-  max-height: 300px;
+  flex: 1;
+  min-height: 0;
 }
 
 .timeline-scroll-container::-webkit-scrollbar {
@@ -1520,7 +1641,7 @@ body {
 
 .track-content {
   flex: 1;
-  height: 60px;
+  height: 90px;
   background-color: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
@@ -1550,8 +1671,8 @@ body {
 /* Timeline Clip Styles */
 .timeline-clip-bar {
   position: absolute;
-  top: 4px;
-  height: 52px;
+  top: 6px;
+  height: 78px;
   border-radius: 4px;
   cursor: grab;
   overflow: hidden;
@@ -1722,7 +1843,13 @@ body {
 
 /* Timeline Section Layout */
 .timeline-section {
-  margin-bottom: 16px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 16px;
+  border-top: 1px solid var(--border-color);
+  overflow: hidden;
 }
 
 /* Responsive Design for Recording */

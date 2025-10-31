@@ -4,6 +4,15 @@ const ffmpeg = require('fluent-ffmpeg')
 const ffmpegPath = require('ffmpeg-static')
 const ffprobePath = require('ffprobe-static').path
 
+// Safe logging helper to avoid EPIPE errors
+function safeLog(...args) {
+  try {
+    console.log(...args)
+  } catch (e) {
+    // Ignore EPIPE errors
+  }
+}
+
 // Configure FFmpeg paths with production fallback
 function setupFFmpegPaths() {
   let ffmpegExecutable = ffmpegPath
@@ -11,7 +20,7 @@ function setupFFmpegPaths() {
   
   // In production, the executables might be in a different location
   if (app && app.isPackaged) {
-    console.log('Setting up FFmpeg paths for production build')
+    safeLog('Setting up FFmpeg paths for production build')
     
     // Try to find FFmpeg in the packaged app (prioritize unpacked versions)
     const possibleFFmpegPaths = [
@@ -234,26 +243,9 @@ function createWindow() {
   const isDev = !app.isPackaged
   
   if (isDev) {
-    // Try different ports that Vite might use
-    const tryLoadDevServer = async () => {
-      const ports = [5173, 5174, 5175, 5176, 5177]
-      
-      for (const port of ports) {
-        try {
-          await mainWindow.loadURL(`http://localhost:${port}`)
-          console.log(`Successfully loaded Vite dev server on port ${port}`)
-          return
-        } catch (error) {
-          console.log(`Port ${port} not available, trying next...`)
-        }
-      }
-      
-      console.error('Could not load Vite dev server on any port')
-      // Fallback to production build
-      mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
-    }
-    
-    tryLoadDevServer()
+    // In development, load from Vite dev server
+    mainWindow.loadURL('http://localhost:5173')
+    console.log('Loading from Vite dev server at http://localhost:5173')
   } else {
     mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'))
   }
@@ -670,128 +662,207 @@ ipcMain.handle('export-timeline', async (event, options) => {
     console.log('Main: Exporting timeline with', clips.length, 'clips')
     console.log('Main: Clips:', clips.map(c => ({ file: c.filePath, start: c.startTime, duration: c.duration })))
     
-    return new Promise((resolve, reject) => {
-      let command = ffmpeg()
+    // Validate inputs
+    if (!clips || clips.length === 0) {
+      throw new Error('No clips provided for export')
+    }
+    
+    if (!outputPath) {
+      throw new Error('No output path provided')
+    }
+    
+    const fs = require('fs')
+    
+    // Validate all input files exist and have valid parameters
+    const clipMetadata = []
+    for (let i = 0; i < clips.length; i++) {
+      const clip = clips[i]
       
-      // Add all input files
-      clips.forEach((clip) => {
-        command.input(clip.filePath)
-      })
-      
-      // Build filter complex for trimming, normalizing, concatenating, and scaling
-      // This handles mixed formats (MP4, MOV, WebM) by normalizing everything to common codecs
-      let filterComplex = ''
-      
-      // Determine target resolution from first clip or specified resolution
-      let targetWidth = null
-      let targetHeight = null
-      
-      if (resolution !== 'original') {
-        const resolutionMap = {
-          '4K': { width: 3840, height: 2160 },
-          '1080p': { width: 1920, height: 1080 },
-          '720p': { width: 1280, height: 720 },
-          '480p': { width: 854, height: 480 },
-          '360p': { width: 640, height: 360 }
-        }
-        if (resolutionMap[resolution]) {
-          targetWidth = resolutionMap[resolution].width
-          targetHeight = resolutionMap[resolution].height
-        }
+      if (!clip.filePath) {
+        throw new Error(`Clip ${i + 1} is missing file path`)
       }
       
-      // Process each clip: trim, normalize format/codec, scale if needed
-      clips.forEach((clip, index) => {
-        // Trim video
-        filterComplex += `[${index}:v]trim=start=${clip.startTime}:duration=${clip.duration},setpts=PTS-STARTPTS`
-        
-        // Scale if needed (before concatenation for consistent sizes)
-        if (targetWidth && targetHeight) {
-          filterComplex += `,scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2`
-        }
-        
-        filterComplex += `[v${index}];`
-        
-        // Process audio (trim and normalize)
-        // Handle clips with or without audio
-        filterComplex += `[${index}:a]atrim=start=${clip.startTime}:duration=${clip.duration},asetpts=PTS-STARTPTS`
-        
-        // Normalize audio format (convert to consistent format for concatenation)
-        filterComplex += `,aformat=sample_rates=48000:channel_layouts=stereo`
-        
-        filterComplex += `[a${index}];`
-      })
-      
-      // Concatenate video streams
-      const videoInputs = clips.map((_, index) => `[v${index}]`).join('')
-      filterComplex += `${videoInputs}concat=n=${clips.length}:v=1:a=0[vconcat];`
-      
-      // Concatenate audio streams
-      const audioInputs = clips.map((_, index) => `[a${index}]`).join('')
-      filterComplex += `${audioInputs}concat=n=${clips.length}:v=0:a=1[aconcat];`
-      
-      // Final output labels
-      filterComplex += '[vconcat][aconcat]'
-      
-      console.log('Main: Filter complex:', filterComplex)
-      
-      // Apply filter complex
-      command.complexFilter(filterComplex)
-      
-      // Map both video and audio outputs
-      command.outputOptions(['-map', '[vconcat]'])
-      command.outputOptions(['-map', '[aconcat]'])
-      
-      // Set output file
-      command.output(outputPath)
-      
-      // Set codecs (normalize to h264/aac for compatibility)
-      command.videoCodec('libx264')
-      command.audioCodec('aac')
-      
-      // Set quality/bitrate based on resolution
-      if (resolution !== 'original') {
-        const resolutionMap = {
-          '4K': { bitrate: '15000k' },
-          '1080p': { bitrate: '5000k' },
-          '720p': { bitrate: '2500k' },
-          '480p': { bitrate: '1000k' },
-          '360p': { bitrate: '500k' }
-        }
-        
-        if (resolutionMap[resolution]) {
-          command.videoBitrate(resolutionMap[resolution].bitrate)
-          command.audioBitrate('128k')
-        }
-      } else {
-        // Use reasonable defaults for original resolution
-        command.videoBitrate('5000k')
-        command.audioBitrate('128k')
+      // Normalize file path - remove any protocol prefixes (local://, file://, etc.)
+      let normalizedPath = clip.filePath
+      if (normalizedPath.startsWith('local://')) {
+        normalizedPath = normalizedPath.replace('local://', '')
+      }
+      if (normalizedPath.startsWith('file://')) {
+        normalizedPath = normalizedPath.replace('file://', '')
+      }
+      // Remove leading slash if present after protocol removal
+      if (normalizedPath.startsWith('/') && !normalizedPath.startsWith('//')) {
+        // Keep the leading slash for absolute paths
       }
       
-      // Set quality presets
-      command.outputOptions(['-preset', 'medium'])
-      command.outputOptions(['-crf', '23'])
+      if (!fs.existsSync(normalizedPath)) {
+        throw new Error(`Clip ${i + 1} file does not exist: ${normalizedPath}`)
+      }
       
-      command
-        .on('progress', (progress) => {
-          // Send progress updates to renderer
-          mainWindow.webContents.send('export-progress', {
-            percent: Math.round(progress.percent || 0)
-          })
+      if (typeof clip.startTime !== 'number' || isNaN(clip.startTime) || clip.startTime < 0) {
+        throw new Error(`Clip ${i + 1} has invalid startTime: ${clip.startTime}`)
+      }
+      
+      if (typeof clip.duration !== 'number' || isNaN(clip.duration) || clip.duration <= 0) {
+        throw new Error(`Clip ${i + 1} has invalid duration: ${clip.duration}`)
+      }
+      
+      // Check if clip has audio track and get file duration and stream indices
+      const probeResult = await new Promise((resolve, reject) => {
+        ffmpeg.ffprobe(normalizedPath, (err, metadata) => {
+          if (err) {
+            console.warn(`Main: Error probing clip ${i + 1}:`, err.message)
+            resolve({ hasAudio: false, duration: null, videoStreamIndex: 0, audioStreamIndex: 1 })
+          } else {
+            const audioStream = metadata.streams.find(stream => stream.codec_type === 'audio')
+            const videoStream = metadata.streams.find(stream => stream.codec_type === 'video')
+            const duration = metadata.format?.duration || videoStream?.duration || null
+            
+            // Get actual stream indices
+            const videoStreamIndex = metadata.streams.findIndex(stream => stream.codec_type === 'video')
+            const audioStreamIndex = metadata.streams.findIndex(stream => stream.codec_type === 'audio')
+            
+            resolve({ 
+              hasAudio: !!audioStream, 
+              duration: duration,
+              videoStreamIndex: videoStreamIndex >= 0 ? videoStreamIndex : 0,
+              audioStreamIndex: audioStreamIndex >= 0 ? audioStreamIndex : 1
+            })
+          }
         })
-        .on('end', () => {
-          console.log('Main: Timeline export completed successfully')
-          mainWindow.webContents.send('export-complete')
-          resolve({ success: true })
-        })
-        .on('error', (err) => {
-          console.error('Main: FFmpeg timeline export error:', err)
-          mainWindow.webContents.send('export-error', err.message)
-          reject(err)
-        })
-        .run()
+      })
+      
+      const hasAudio = probeResult.hasAudio
+      const fileDuration = probeResult.duration
+      const videoStreamIndex = probeResult.videoStreamIndex
+      const audioStreamIndex = probeResult.audioStreamIndex
+      
+      // Validate that startTime + duration doesn't exceed file duration
+      if (fileDuration !== null && (clip.startTime + clip.duration > fileDuration + 0.5)) {
+        console.warn(`Main: Clip ${i + 1} trim exceeds file duration. File: ${fileDuration}s, Requested: ${clip.startTime + clip.duration}s`)
+        // Adjust duration to fit within file
+        const adjustedDuration = Math.max(0, fileDuration - clip.startTime)
+        if (adjustedDuration <= 0) {
+          throw new Error(`Clip ${i + 1} startTime (${clip.startTime}s) exceeds file duration (${fileDuration}s)`)
+        }
+        console.log(`Main: Adjusting clip ${i + 1} duration from ${clip.duration}s to ${adjustedDuration}s`)
+        clip.duration = adjustedDuration
+      }
+      
+      clipMetadata.push({ ...clip, filePath: normalizedPath, hasAudio, videoStreamIndex, audioStreamIndex })
+      console.log(`Main: Clip ${i + 1} (${path.basename(normalizedPath)}) has audio:`, hasAudio, 'duration:', fileDuration, 'videoStream:', videoStreamIndex, 'audioStream:', audioStreamIndex)
+    }
+    
+    // Validate that we have clips to export
+    if (clipMetadata.length === 0) {
+      throw new Error('No valid clips found for export')
+    }
+    
+    console.log(`Main: Preparing to export ${clipMetadata.length} clips`)
+    clipMetadata.forEach((clip, idx) => {
+      console.log(`Main: Clip ${idx + 1}:`, {
+        filePath: clip.filePath,
+        exists: fs.existsSync(clip.filePath),
+        startTime: clip.startTime,
+        duration: clip.duration,
+        hasAudio: clip.hasAudio
+      })
     })
+    
+    // Use simpler two-pass approach: extract each segment, then concat
+    const os = require('os')
+    const tempDir = os.tmpdir()
+    const tempFiles = []
+    const concatListPath = path.join(tempDir, `clipforge_concat_${Date.now()}.txt`)
+    
+    try {
+      // Step 1: Extract each clip segment to a temporary file
+      console.log('Main: Step 1 - Extracting clip segments...')
+      
+      for (let i = 0; i < clipMetadata.length; i++) {
+        const clip = clipMetadata[i]
+        const tempFile = path.join(tempDir, `clipforge_segment_${Date.now()}_${i}.mp4`)
+        tempFiles.push(tempFile)
+        
+        console.log(`Main: Extracting clip ${i + 1} to ${tempFile}`)
+        
+        await new Promise((resolveExtract, rejectExtract) => {
+          ffmpeg(clip.filePath)
+            .setStartTime(clip.startTime)
+            .setDuration(clip.duration)
+            .videoCodec('libx264')
+            .audioCodec('aac')
+            .outputOptions([
+              '-preset', 'fast',
+              '-crf', '23',
+              '-pix_fmt', 'yuv420p',
+              '-ar', '48000',  // 48kHz audio
+              '-ac', '2'       // Stereo audio
+            ])
+            .output(tempFile)
+            .on('start', (cmd) => console.log(`Main: FFmpeg extract cmd: ${cmd}`))
+            .on('progress', (progress) => {
+              const percent = Math.round((i / clipMetadata.length + (progress.percent || 0) / 100 / clipMetadata.length) * 50)
+              mainWindow.webContents.send('export-progress', { percent })
+            })
+            .on('end', () => {
+              console.log(`Main: Clip ${i + 1} extracted successfully`)
+              resolveExtract()
+            })
+            .on('error', (err) => {
+              console.error(`Main: Error extracting clip ${i + 1}:`, err.message)
+              rejectExtract(err)
+            })
+            .run()
+        })
+      }
+      
+      // Step 2: Concatenate all temp files
+      console.log('Main: Step 2 - Concatenating segments...')
+      const concatList = tempFiles.map(f => `file '${f}'`).join('\n')
+      fs.writeFileSync(concatListPath, concatList)
+      console.log(`Main: Concat list:\n${concatList}`)
+      
+      await new Promise((resolve, reject) => {
+        ffmpeg()
+          .input(concatListPath)
+          .inputOptions(['-f', 'concat', '-safe', '0'])
+          .videoCodec('copy')
+          .audioCodec('copy')
+          .output(outputPath)
+          .on('start', (cmd) => console.log(`Main: FFmpeg concat cmd: ${cmd}`))
+          .on('progress', (progress) => {
+            const percent = Math.round(50 + (progress.percent || 0) / 2)
+            mainWindow.webContents.send('export-progress', { percent })
+          })
+          .on('end', () => {
+            console.log('Main: Timeline export completed successfully')
+            mainWindow.webContents.send('export-complete')
+            resolve({ success: true })
+          })
+          .on('error', (err) => {
+            console.error('Main: FFmpeg concat error:', err)
+            mainWindow.webContents.send('export-error', err.message)
+            reject(err)
+          })
+          .run()
+      })
+      
+      // Cleanup temp files
+      console.log('Main: Cleaning up temp files...')
+      tempFiles.forEach(f => {
+        try { fs.unlinkSync(f) } catch (e) {}
+      })
+      try { fs.unlinkSync(concatListPath) } catch (e) {}
+      
+    } catch (error) {
+      // Cleanup on error
+      tempFiles.forEach(f => {
+        try { fs.unlinkSync(f) } catch (e) {}
+      })
+      try { fs.unlinkSync(concatListPath) } catch (e) {}
+      throw error
+    }
   } catch (error) {
     console.error('Error exporting timeline:', error)
     throw error
@@ -803,12 +874,12 @@ ipcMain.handle('export-timeline', async (event, options) => {
 // List available video sources (screens/windows)
 ipcMain.handle('list-video-sources', async () => {
   try {
-    console.log('Main: Listing video sources...')
+    safeLog('Main: Listing video sources...')
     const sources = await desktopCapturer.getSources({
       types: ['screen', 'window']
     })
     
-    console.log('Main: Found sources:', sources.length)
+    safeLog('Main: Found sources:', sources.length)
     
     // Handle case where no sources are available (permission denied)
     if (sources.length === 0) {
@@ -825,7 +896,7 @@ ipcMain.handle('list-video-sources', async () => {
              !name.includes('vite')
     })
     
-    console.log('Main: Filtered sources:', filteredSources.length)
+    safeLog('Main: Filtered sources:', filteredSources.length)
     
     return filteredSources.map(source => ({
       id: source.id,
@@ -853,7 +924,7 @@ ipcMain.handle('list-video-sources', async () => {
 // List available audio sources (microphones)
 ipcMain.handle('list-audio-sources', async () => {
   try {
-    console.log('Main: Listing audio sources...')
+    safeLog('Main: Listing audio sources...')
     // Note: In Electron, we can't directly list audio sources like we do for video
     // The renderer process will use navigator.mediaDevices.enumerateDevices() instead
     // This handler is here for consistency but will return empty array

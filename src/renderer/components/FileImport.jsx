@@ -140,7 +140,7 @@ const FileImport = ({ onVideoImported }) => {
         disabled={isImporting}
         title="Import video file (MP4, MOV, or WebM)"
       >
-        {isImporting ? 'Importing...' : '📹 Import Video'}
+        {isImporting ? 'Importing...' : 'Import Video'}
       </button>
     </div>
   )

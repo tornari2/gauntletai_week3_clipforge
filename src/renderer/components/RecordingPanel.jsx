@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import SourceSelector from './SourceSelector'
 import RecordingControls from './RecordingControls'
 
-const RecordingPanel = ({ onRecordingComplete }) => {
+const RecordingPanel = ({ onRecordingComplete, onRecordingStarted, onRecordingTimeUpdate }) => {
   const [videoSources, setVideoSources] = useState([])
   const [audioSources, setAudioSources] = useState([])
   const [selectedVideoSource, setSelectedVideoSource] = useState(null)
@@ -10,7 +10,7 @@ const RecordingPanel = ({ onRecordingComplete }) => {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  // Load available sources on component mount
+  // Load available sources on component mount - load in background without blocking UI
   useEffect(() => {
     loadSources()
   }, [])
@@ -88,69 +88,50 @@ const RecordingPanel = ({ onRecordingComplete }) => {
 
   const isSelfRecording = checkForSelfRecording()
 
-  if (isLoading) {
-    return (
-      <div className="recording-panel">
-        <div className="recording-panel-header">
-          <h3>🎥 Recording</h3>
-        </div>
-        <div className="recording-panel-content">
-          <div className="loading-state">
-            <div className="spinner"></div>
-            <p>Loading recording sources...</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="recording-panel">
-        <div className="recording-panel-header">
-          <h3>🎥 Recording</h3>
-        </div>
-        <div className="recording-panel-content">
-          <div className="error-state">
-            <p className="error-message">{error}</p>
-            
-            {error.includes('permission') && (
-              <div className="permission-guide">
-                <h4>How to Grant Permissions:</h4>
-                <ol>
-                  <li>Open <strong>System Preferences</strong> (or System Settings on macOS 13+)</li>
-                  <li>Go to <strong>Security & Privacy</strong></li>
-                  <li>Click the <strong>Privacy</strong> tab</li>
-                  <li>Select <strong>Screen Recording</strong> from the left sidebar</li>
-                  <li>Check the box next to <strong>ClipEdit</strong> (or your terminal app if running in dev mode)</li>
-                  <li>If you don't see ClipEdit, try running the app again and the permission dialog should appear</li>
-                  <li>Repeat for <strong>Microphone</strong> if you want to record audio</li>
-                </ol>
-                <p className="permission-note">
-                  <strong>Note:</strong> You may need to restart the app after granting permissions.
-                </p>
-              </div>
-            )}
-            
-            <button 
-              className="btn btn-secondary"
-              onClick={loadSources}
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="recording-panel">
       <div className="recording-panel-header">
-        <h3>🎥 Recording</h3>
+        <h3>Recording</h3>
       </div>
       
         <div className="recording-panel-content">
+          {isLoading && (
+            <div className="loading-state" style={{ marginBottom: '16px', padding: '8px' }}>
+              <div className="spinner"></div>
+              <p style={{ margin: '8px 0 0 0', fontSize: '14px' }}>Loading recording sources...</p>
+            </div>
+          )}
+          
+          {error && (
+            <div className="error-state" style={{ marginBottom: '16px' }}>
+              <p className="error-message">{error}</p>
+              {error.includes('permission') && (
+                <div className="permission-guide">
+                  <h4>How to Grant Permissions:</h4>
+                  <ol>
+                    <li>Open <strong>System Preferences</strong> (or System Settings on macOS 13+)</li>
+                    <li>Go to <strong>Security & Privacy</strong></li>
+                    <li>Click the <strong>Privacy</strong> tab</li>
+                    <li>Select <strong>Screen Recording</strong> from the left sidebar</li>
+                    <li>Check the box next to <strong>ClipEdit</strong> (or your terminal app if running in dev mode)</li>
+                    <li>If you don't see ClipEdit, try running the app again and the permission dialog should appear</li>
+                    <li>Repeat for <strong>Microphone</strong> if you want to record audio</li>
+                  </ol>
+                  <p className="permission-note">
+                    <strong>Note:</strong> You may need to restart the app after granting permissions.
+                  </p>
+                </div>
+              )}
+              <button 
+                className="btn btn-secondary"
+                onClick={loadSources}
+                style={{ marginTop: '8px' }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          
           <SourceSelector
             videoSources={videoSources}
             audioSources={audioSources}
@@ -162,7 +143,6 @@ const RecordingPanel = ({ onRecordingComplete }) => {
           
           {isSelfRecording && (
             <div className="self-recording-warning">
-              <div className="warning-icon">⚠️</div>
               <div className="warning-content">
                 <h4>Cannot Record This Window</h4>
                 <p>You're trying to record the window containing this app, which will cause issues.</p>
@@ -182,7 +162,7 @@ const RecordingPanel = ({ onRecordingComplete }) => {
                     }}
                     style={{ marginTop: '8px' }}
                   >
-                    📱 Minimize App
+                    Minimize App
                   </button>
                 </div>
               </div>
@@ -193,6 +173,8 @@ const RecordingPanel = ({ onRecordingComplete }) => {
             selectedVideoSource={selectedVideoSource}
             selectedAudioSource={selectedAudioSource}
             onRecordingComplete={handleRecordingComplete}
+            onRecordingStarted={(type, stopFn) => onRecordingStarted && onRecordingStarted(type, stopFn)}
+            onRecordingTimeUpdate={onRecordingTimeUpdate}
             disabled={isSelfRecording}
           />
         </div>
