@@ -114,33 +114,62 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     if (currentDiff > 0.1 && !isDraggingSeekRef.current && video.paused) {
       console.log('TimelinePreview: External playhead change detected:', timeline.playheadPosition, '-> timeline time:', timelineTime)
       
-      // Find which clip this time corresponds to
-      let accumulatedTime = 0
-      let targetClipIndex = 0
+      // Find which clip contains this playhead position
+      // Check absolute timeline position (timeline.playheadPosition) against clip bounds
+      let targetClipIndex = -1
       let timeInTargetClip = 0
       
       for (let i = 0; i < clips.length; i++) {
-        const clipDuration = clips[i].trimEnd - clips[i].trimStart
-        if (timelineTime <= accumulatedTime + clipDuration) {
+        const clip = clips[i]
+        const clipActiveStart = clip.startTime + clip.trimStart
+        const clipActiveEnd = clip.startTime + clip.trimEnd
+        
+        // Check if playhead is within this clip's active region
+        if (timeline.playheadPosition >= clipActiveStart && timeline.playheadPosition < clipActiveEnd) {
           targetClipIndex = i
-          timeInTargetClip = timelineTime - accumulatedTime
+          timeInTargetClip = timeline.playheadPosition - clipActiveStart
           break
         }
-        accumulatedTime += clipDuration
       }
       
-      const targetClip = clips[targetClipIndex]
-      if (!targetClip) return
+      // If playhead is not in any active region, find the next active region
+      if (targetClipIndex === -1) {
+        for (let i = 0; i < clips.length; i++) {
+          const clip = clips[i]
+          const clipActiveStart = clip.startTime + clip.trimStart
+          if (timeline.playheadPosition < clipActiveStart) {
+            // Jump to this clip's active start
+            targetClipIndex = i
+            timeInTargetClip = 0
+            break
+          }
+        }
+        // If playhead is beyond all clips, use the last clip
+        if (targetClipIndex === -1 && clips.length > 0) {
+          targetClipIndex = clips.length - 1
+          const lastClip = clips[targetClipIndex]
+          timeInTargetClip = lastClip.trimEnd - lastClip.trimStart
+        }
+      }
       
-      console.log('  -> Syncing to clip', targetClipIndex, 'at time', timeInTargetClip)
+      if (targetClipIndex === -1 || !clips[targetClipIndex]) return
+      
+      const targetClip = clips[targetClipIndex]
+      console.log('  -> Syncing to clip', targetClipIndex, 'at playhead position', timeline.playheadPosition, 'time in clip:', timeInTargetClip)
+      
+      // Calculate timeline time (accumulated active durations up to this clip)
+      const calculatedTimelineTime = clips.slice(0, targetClipIndex).reduce((total, clip) => {
+        const clipDuration = (clip.trimEnd || 0) - (clip.trimStart || 0)
+        return total + Math.max(0, clipDuration)
+      }, 0) + timeInTargetClip
       
       // Update state
       if (targetClipIndex !== currentClipIndex) {
         setCurrentClipIndex(targetClipIndex)
         actualClipIndexRef.current = targetClipIndex
       }
-      setCurrentTime(timelineTime)
-      currentTimeRef.current = timelineTime
+      setCurrentTime(calculatedTimelineTime)
+      currentTimeRef.current = calculatedTimelineTime
       
       // Seek video to correct position
       const baseOffset = targetClip.clip.videoOffsetStart !== undefined 
@@ -151,14 +180,14 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       
       // Update progress bar
       if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
-        const progress = (timelineTime / totalDuration) * 100
+        const progress = (calculatedTimelineTime / totalDuration) * 100
         progressBarRef.current.style.width = `${progress}%`
         seekHandleRef.current.style.left = `${progress}%`
       }
       
       // Update time display
       if (timeDisplayRef.current) {
-        timeDisplayRef.current.textContent = `${formatTime(timelineTime)} / ${formatTime(totalDuration)}`
+        timeDisplayRef.current.textContent = `${formatTime(calculatedTimelineTime)} / ${formatTime(totalDuration)}`
       }
     }
   }, [timeline?.playheadPosition, clips, totalDuration])
@@ -382,17 +411,19 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
             // Compare file paths strictly - both must exist and match exactly
             const currentFilePath = currentClip.clip.originalFilePath || currentClip.clip.filePath
             const nextFilePath = nextClip.clip.originalFilePath || nextClip.clip.filePath
-            const isSameSource = currentFilePath && nextFilePath && 
-                                 currentFilePath === nextFilePath &&
-                                 nextClip.clip.videoOffsetStart !== undefined // Split clips have videoOffsetStart
+            const isSameSource = currentFilePath && nextFilePath && currentFilePath === nextFilePath
             
             console.log('  Same source file?', isSameSource)
             console.log('  Current file:', currentFilePath)
             console.log('  Next file:', nextFilePath)
-            console.log('  Next clip has videoOffsetStart?', nextClip.clip.videoOffsetStart !== undefined)
             
             if (isSameSource && currentVideoSrcRef.current) {
               console.log('  Using seamless transition (seeking)')
+              console.log('  Video is currently playing?', isPlaying, 'Video paused?', video.paused)
+              
+              // Capture playback state before seeking
+              const wasPlaying = isPlaying || !video.paused
+              
               // Seek to next clip's start position immediately
               // For split clips, use videoOffsetStart
               const nextSeekPosition = nextClip.clip.videoOffsetStart !== undefined
@@ -405,6 +436,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
               setCurrentClipIndex(nextClipIndex)
               
               // Calculate the timeline time for the start of the next clip's trimmed portion
+              // This accumulates active durations of all previous clips
               const nextClipTimelineTime = clips.slice(0, nextClipIndex).reduce((total, clip) => {
                 const clipDuration = (clip.trimEnd || 0) - (clip.trimStart || 0)
                 return total + Math.max(0, clipDuration)
@@ -412,13 +444,11 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
               setCurrentTime(nextClipTimelineTime)
               currentTimeRef.current = nextClipTimelineTime
               
-              // Update playhead position
-              const firstClip = clips[0]
-              const firstClipStartTime = firstClip?.startTime || 0
-              const firstClipTrimStart = firstClip?.trimStart || 0
-              const nextPlayheadPosition = firstClipStartTime + firstClipTrimStart + nextClipTimelineTime
+              // Update playhead position - jump directly to next clip's active start
+              // This skips any gaps (trimmed sections) between clips
+              const nextClipActiveStart = nextClip.startTime + nextClip.trimStart
               if (onPlayheadMove) {
-                onPlayheadMove(nextPlayheadPosition)
+                onPlayheadMove(nextClipActiveStart)
               }
               
               // Update UI immediately for smooth transition
@@ -435,9 +465,11 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
               
               // Ensure video continues playing if it was playing (seeking might pause it)
               // Use a small timeout to ensure the seek completes first
-              if (isPlaying) {
+              if (wasPlaying) {
+                console.log('  Video was playing, ensuring playback continues after seek')
                 setTimeout(() => {
-                  if (video.paused && isPlaying) {
+                  if (video.paused) {
+                    console.log('  Video paused after seek, resuming playback')
                     video.play().catch(err => console.warn('Play failed after transition:', err))
                   }
                   // Reset transition flag after seek completes
@@ -446,6 +478,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
                   }, 50)
                 }, 10)
               } else {
+                console.log('  Video was not playing, staying paused')
                 // Reset transition flag if not playing
                 setTimeout(() => {
                   isTransitioningRef.current = false
@@ -466,6 +499,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
               setCurrentClipIndex(nextClipIndex)
               
               // Calculate the timeline time for the start of the next clip's trimmed portion
+              // This accumulates active durations of all previous clips
               const nextClipTimelineTime = clips.slice(0, nextClipIndex).reduce((total, clip) => {
                 const clipDuration = (clip.trimEnd || 0) - (clip.trimStart || 0)
                 return total + Math.max(0, clipDuration)
@@ -473,13 +507,11 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
               setCurrentTime(nextClipTimelineTime)
               currentTimeRef.current = nextClipTimelineTime
               
-              // Update playhead position
-              const firstClip = clips[0]
-              const firstClipStartTime = firstClip?.startTime || 0
-              const firstClipTrimStart = firstClip?.trimStart || 0
-              const nextPlayheadPosition = firstClipStartTime + firstClipTrimStart + nextClipTimelineTime
+              // Update playhead position - jump directly to next clip's active start
+              // This skips any gaps (trimmed sections) between clips
+              const nextClipActiveStart = nextClip.startTime + nextClip.trimStart
               if (onPlayheadMove) {
-                onPlayheadMove(nextPlayheadPosition)
+                onPlayheadMove(nextClipActiveStart)
               }
               
               // Reset transition flag after video loads (handled in video loading effect)
@@ -633,6 +665,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         console.log('  Setting shouldPlayRef to:', wasPlaying)
         
         // Calculate the timeline time for the start of the next clip's trimmed portion
+        // This accumulates active durations of all previous clips
         const nextClipTimelineTime = clips.slice(0, nextIndex).reduce((total, clip) => {
           const clipDuration = (clip.trimEnd || 0) - (clip.trimStart || 0)
           return total + Math.max(0, clipDuration)
@@ -644,11 +677,11 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         setCurrentTime(nextClipTimelineTime)
         currentTimeRef.current = nextClipTimelineTime
         
-        // Update playhead position
-        const firstClipStartTime = clips[0]?.startTime || 0
-        const nextPlayheadPosition = firstClipStartTime + nextClipTimelineTime
+        // Update playhead position - jump directly to next clip's active start
+        // This skips any gaps (trimmed sections) between clips
+        const nextClipActiveStart = nextClip.startTime + nextClip.trimStart
         if (onPlayheadMove) {
-          onPlayheadMove(nextPlayheadPosition)
+          onPlayheadMove(nextClipActiveStart)
         }
       } else {
         console.log('TimelinePreview: End of timeline reached - resetting playhead to beginning')
