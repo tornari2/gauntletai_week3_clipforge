@@ -580,11 +580,10 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         currentTimeRef.current = timelineTime
         
         // Calculate playhead position on the timeline
-        // Start from the first clip's startTime + trimStart (beginning of active region) and add the elapsed timeline time
-        const firstClip = clips[0]
-        const firstClipStartTime = firstClip?.startTime || 0
-        const firstClipTrimStart = firstClip?.trimStart || 0
-        const playheadPosition = firstClipStartTime + firstClipTrimStart + timelineTime
+        // Use the current clip's actual position and add time within the active region
+        const currentClipObj = clips[actualClipIndex]
+        const currentClipActiveStart = currentClipObj.startTime + currentClipObj.trimStart
+        const playheadPosition = currentClipActiveStart + timeInClip
         
         // Update progress bar DOM directly (no re-render)
         if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
