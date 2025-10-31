@@ -585,6 +585,17 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         const currentClipActiveStart = currentClipObj.startTime + currentClipObj.trimStart
         const playheadPosition = currentClipActiveStart + timeInClip
         
+        // Debug logging
+        if (Math.random() < 0.01) { // Log occasionally to avoid flooding console
+          console.log('Playhead update:')
+          console.log('  actualClipIndex:', actualClipIndex)
+          console.log('  currentClipObj.startTime:', currentClipObj.startTime)
+          console.log('  currentClipObj.trimStart:', currentClipObj.trimStart)
+          console.log('  timeInClip:', timeInClip)
+          console.log('  currentClipActiveStart:', currentClipActiveStart)
+          console.log('  playheadPosition:', playheadPosition)
+        }
+        
         // Update progress bar DOM directly (no re-render)
         if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
           const progress = (timelineTime / totalDuration) * 100
