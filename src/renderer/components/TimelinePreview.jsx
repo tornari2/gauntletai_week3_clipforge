@@ -110,8 +110,9 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     
     // Check if external playhead was changed (e.g., reset after trim, split, or reposition)
     // Only sync if there's a significant difference (> 0.1s) to avoid fighting with playback updates
+    // Also skip if we're transitioning between clips (to avoid resetting playhead during transitions)
     const currentDiff = Math.abs(timelineTime - currentTimeRef.current)
-    if (currentDiff > 0.1 && !isDraggingSeekRef.current && video.paused) {
+    if (currentDiff > 0.1 && !isDraggingSeekRef.current && video.paused && !isTransitioningRef.current) {
       console.log('TimelinePreview: External playhead change detected:', timeline.playheadPosition, '-> timeline time:', timelineTime)
       
       // Find which clip contains this playhead position
@@ -224,6 +225,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     
     // Set up event handlers BEFORE loading the video
     let canPlayHandled = false
+    let seekReadyHandler = null
     
     const handleCanPlay = () => {
       // Prevent duplicate calls
@@ -242,29 +244,68 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
           ? currentClip.clip.videoOffsetStart 
           : currentClip.trimStart
         console.log('  Seeking to:', seekPosition)
-        video.currentTime = seekPosition
-      }
-      
-      // If we should be playing, start playing after the video is ready
-      if (shouldPlayRef.current) {
-        console.log('TimelinePreview: Starting auto-play for next clip')
-        video.play().then(() => {
-          console.log('TimelinePreview: Video playback started successfully')
-          setIsPlaying(true)
-          shouldPlayRef.current = false
-          // Reset transition flag now that playback has started
-          isTransitioningRef.current = false
-        }).catch(err => {
-          console.warn('TimelinePreview: Failed to start playback:', err)
-          shouldPlayRef.current = false
-          // Reset transition flag even if playback failed
-          isTransitioningRef.current = false
-        })
+        
+        // Wait for seek to complete before playing
+        const seekAndPlay = () => {
+          video.currentTime = seekPosition
+          
+          // If we should be playing, start playing after seek completes
+          if (shouldPlayRef.current) {
+            // Use a small timeout to ensure seek has completed
+            setTimeout(() => {
+              console.log('TimelinePreview: Starting auto-play for next clip')
+              video.play().then(() => {
+                console.log('TimelinePreview: Video playback started successfully')
+                setIsPlaying(true)
+                shouldPlayRef.current = false
+                // Reset transition flag now that playback has started
+                isTransitioningRef.current = false
+              }).catch(err => {
+                console.warn('TimelinePreview: Failed to start playback:', err)
+                shouldPlayRef.current = false
+                // Reset transition flag even if playback failed
+                isTransitioningRef.current = false
+              })
+            }, 50)
+          } else {
+            // Reset transition flag if not auto-playing
+            setTimeout(() => {
+              isTransitioningRef.current = false
+            }, 100)
+          }
+        }
+        
+        // If video is already ready, seek immediately
+        if (video.readyState >= 2) { // HAVE_CURRENT_DATA or higher
+          seekAndPlay()
+        } else {
+          // Wait for video to be ready before seeking
+          seekReadyHandler = () => {
+            seekAndPlay()
+            video.removeEventListener('loadeddata', seekReadyHandler)
+            seekReadyHandler = null
+          }
+          video.addEventListener('loadeddata', seekReadyHandler)
+        }
       } else {
-        // Reset transition flag if not auto-playing
-        setTimeout(() => {
-          isTransitioningRef.current = false
-        }, 100)
+        // No seek needed - just play if needed
+        if (shouldPlayRef.current) {
+          console.log('TimelinePreview: Starting auto-play for next clip')
+          video.play().then(() => {
+            console.log('TimelinePreview: Video playback started successfully')
+            setIsPlaying(true)
+            shouldPlayRef.current = false
+            isTransitioningRef.current = false
+          }).catch(err => {
+            console.warn('TimelinePreview: Failed to start playback:', err)
+            shouldPlayRef.current = false
+            isTransitioningRef.current = false
+          })
+        } else {
+          setTimeout(() => {
+            isTransitioningRef.current = false
+          }, 100)
+        }
       }
       
       // Clean up event listeners
@@ -303,6 +344,10 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     return () => {
       video.removeEventListener('canplay', handleCanPlay)
       video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      if (seekReadyHandler) {
+        video.removeEventListener('loadeddata', seekReadyHandler)
+        seekReadyHandler = null
+      }
     }
   }, [currentClip])
 
@@ -452,6 +497,9 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
                 onPlayheadMove(nextClipActiveStart)
               }
               
+              // Reset last playhead position ref so timeupdate can start updating immediately
+              lastPlayheadPositionRef.current = nextClipActiveStart
+              
               // Update UI immediately for smooth transition
               if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
                 const progress = (nextClipTimelineTime / totalDuration) * 100
@@ -498,6 +546,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
               
               // Update clip index - this will trigger the useEffect to load the new video
               setCurrentClipIndex(nextClipIndex)
+              actualClipIndexRef.current = nextClipIndex
               
               // Calculate the timeline time for the start of the next clip's trimmed portion
               // This accumulates active durations of all previous clips
@@ -514,6 +563,9 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
               if (onPlayheadMove) {
                 onPlayheadMove(nextClipActiveStart)
               }
+              
+              // Reset last playhead position ref so timeupdate can start updating immediately
+              lastPlayheadPositionRef.current = nextClipActiveStart
               
               // Reset transition flag after video loads (handled in video loading effect)
               // The flag will be reset when the new video starts playing
@@ -615,6 +667,12 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
 
     const handleLoadedMetadata = () => {
       if (currentClip && currentClip.clip && typeof currentClip.trimStart === 'number') {
+        // Skip updates during transitions to avoid interfering with playhead position
+        if (isTransitioningRef.current) {
+          console.log('TimelinePreview: Skipping handleLoadedMetadata during transition')
+          return
+        }
+        
         // Always start at the beginning of the trimmed portion
         // For split clips, use videoOffsetStart
         const seekPosition = currentClip.clip.videoOffsetStart !== undefined 
@@ -639,8 +697,16 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
       console.log('  Total clips:', clips.length)
       console.log('  Is playing:', isPlaying)
       
+      // Prevent multiple simultaneous transitions
+      if (isTransitioningRef.current) {
+        console.log('TimelinePreview: Already transitioning, ignoring ended event')
+        return
+      }
+      
       // Move to next clip or end
       if (currentClipIndex < clips.length - 1) {
+        isTransitioningRef.current = true
+        
         const nextIndex = currentClipIndex + 1
         const nextClip = clips[nextIndex]
         const currentClip = clips[currentClipIndex]
@@ -659,41 +725,121 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         console.log('  Current file:', currentFilePath)
         console.log('  Next file:', nextFilePath)
         
-        if (!isSameSource) {
-          // Different source file - need to reload video
-          console.log('  Different source file - resetting video source')
+        // Capture playback state BEFORE checking if video is paused (ended event pauses it)
+        // isPlaying state should still reflect the previous playing state
+        const wasPlaying = isPlaying
+        
+        if (isSameSource && currentVideoSrcRef.current) {
+          // Same source file - seek to next clip position
+          console.log('  Using seamless transition (seeking)')
+          
+          // Seek to next clip's start position immediately
+          const nextSeekPosition = nextClip.clip.videoOffsetStart !== undefined
+            ? nextClip.clip.videoOffsetStart
+            : nextClip.trimStart
+          console.log('  Seeking video to:', nextSeekPosition)
+          video.currentTime = nextSeekPosition
+          
+          // Update clip index and state immediately
+          setCurrentClipIndex(nextIndex)
+          actualClipIndexRef.current = nextIndex
+          
+          // Calculate the timeline time for the start of the next clip's trimmed portion
+          const nextClipTimelineTime = clips.slice(0, nextIndex).reduce((total, clip) => {
+            const clipDuration = (clip.trimEnd || 0) - (clip.trimStart || 0)
+            return total + Math.max(0, clipDuration)
+          }, 0)
+          setCurrentTime(nextClipTimelineTime)
+          currentTimeRef.current = nextClipTimelineTime
+          
+          // Update playhead position
+          const nextClipActiveStart = nextClip.startTime + nextClip.trimStart
+          if (onPlayheadMove) {
+            onPlayheadMove(nextClipActiveStart)
+          }
+          
+          // Reset last playhead position ref so timeupdate can start updating immediately
+          lastPlayheadPositionRef.current = nextClipActiveStart
+          
+          // Update UI immediately
+          if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
+            const progress = (nextClipTimelineTime / totalDuration) * 100
+            progressBarRef.current.style.width = `${progress}%`
+            seekHandleRef.current.style.left = `${progress}%`
+          }
+          
+          // Update time display
+          if (timeDisplayRef.current) {
+            timeDisplayRef.current.textContent = `${formatTime(nextClipTimelineTime)} / ${formatTime(totalDuration)}`
+          }
+          
+          // Resume playback if it was playing
+          if (wasPlaying) {
+            console.log('  Video was playing, resuming playback after seek')
+            setTimeout(() => {
+              video.play().then(() => {
+                setIsPlaying(true)
+                isTransitioningRef.current = false
+              }).catch(err => {
+                console.warn('Play failed after transition:', err)
+                isTransitioningRef.current = false
+              })
+            }, 10)
+          } else {
+            isTransitioningRef.current = false
+          }
+        } else {
+          // Different source file - need to load new video
+          console.log('  Using file transition (different source)')
+          console.log('  Was playing:', wasPlaying)
+          
+          // Set flag to continue playing after transition
+          shouldPlayRef.current = wasPlaying
+          
+          // Reset video source to force reload
           currentVideoSrcRef.current = null
-        }
-        
-        // Set flag to continue playing after transition
-        // Use isPlaying state OR check if video was playing (video might have paused)
-        const wasPlaying = isPlaying || !video.paused
-        shouldPlayRef.current = wasPlaying
-        console.log('  Setting shouldPlayRef to:', wasPlaying)
-        
-        // Calculate the timeline time for the start of the next clip's trimmed portion
-        // This accumulates active durations of all previous clips
-        const nextClipTimelineTime = clips.slice(0, nextIndex).reduce((total, clip) => {
-          const clipDuration = (clip.trimEnd || 0) - (clip.trimStart || 0)
-          return total + Math.max(0, clipDuration)
-        }, 0)
-        
-        // Update clip index - this will trigger the useEffect to load the new video
-        console.log('  Updating clip index to:', nextIndex)
-        setCurrentClipIndex(nextIndex)
-        setCurrentTime(nextClipTimelineTime)
-        currentTimeRef.current = nextClipTimelineTime
-        
-        // Update playhead position - jump directly to next clip's active start
-        // This skips any gaps (trimmed sections) between clips
-        const nextClipActiveStart = nextClip.startTime + nextClip.trimStart
-        if (onPlayheadMove) {
-          onPlayheadMove(nextClipActiveStart)
+          
+          // Update clip index - this will trigger the useEffect to load the new video
+          console.log('  Updating clip index to:', nextIndex)
+          setCurrentClipIndex(nextIndex)
+          actualClipIndexRef.current = nextIndex
+          
+          // Calculate the timeline time for the start of the next clip's trimmed portion
+          const nextClipTimelineTime = clips.slice(0, nextIndex).reduce((total, clip) => {
+            const clipDuration = (clip.trimEnd || 0) - (clip.trimStart || 0)
+            return total + Math.max(0, clipDuration)
+          }, 0)
+          setCurrentTime(nextClipTimelineTime)
+          currentTimeRef.current = nextClipTimelineTime
+          
+          // Update playhead position - jump directly to next clip's active start
+          const nextClipActiveStart = nextClip.startTime + nextClip.trimStart
+          if (onPlayheadMove) {
+            onPlayheadMove(nextClipActiveStart)
+          }
+          
+          // Reset last playhead position ref so timeupdate can start updating immediately
+          lastPlayheadPositionRef.current = nextClipActiveStart
+          
+          // Update UI immediately
+          if (progressBarRef.current && seekHandleRef.current && totalDuration > 0) {
+            const progress = (nextClipTimelineTime / totalDuration) * 100
+            progressBarRef.current.style.width = `${progress}%`
+            seekHandleRef.current.style.left = `${progress}%`
+          }
+          
+          // Update time display
+          if (timeDisplayRef.current) {
+            timeDisplayRef.current.textContent = `${formatTime(nextClipTimelineTime)} / ${formatTime(totalDuration)}`
+          }
+          
+          // Reset transition flag will happen when video loads and starts playing
         }
       } else {
         console.log('TimelinePreview: End of timeline reached - stopping at end')
         setIsPlaying(false)
         shouldPlayRef.current = false
+        isTransitioningRef.current = false
         
         // Position playhead at the end of the last clip's active region
         if (clips.length > 0) {
