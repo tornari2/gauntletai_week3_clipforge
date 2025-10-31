@@ -514,22 +514,155 @@ function App() {
               ? originalTimelineClip.clip.videoOffsetEnd 
               : originalTimelineClip.trimEnd
             
-            const splitTimeInOriginal = clipOffsetStart + (playheadTime - originalTimelineClip.startTime)
+            // Calculate where the playhead is relative to the clip's start on timeline
+            const playheadRelativeToClip = playheadTime - originalTimelineClip.startTime
+            // Map to original video time
+            // The timeline shows the full clip duration visually, so we need to map correctly:
+            // - For regular clips: playheadRelativeToClip maps directly to original video time
+            // - For split clips: playheadRelativeToClip is relative to videoOffsetStart
+            // - For trimmed clips: we need to account for trimStart
+            // The playhead is in the active region, so: splitTimeInOriginal = clipOffsetStart + (playheadRelativeToClip - trimStart)
+            const splitTimeInOriginal = clipOffsetStart + (playheadRelativeToClip - originalTimelineClip.trimStart)
+            
+            // Get original clip's trim values (relative to full original video)
+            // If this is already a split clip, we need to preserve the original trim
+            const originalTrimStart = originalTimelineClip.clip.videoOffsetStart !== undefined
+              ? originalTimelineClip.clip.videoOffsetStart  // Already accounts for original trim
+              : originalTimelineClip.trimStart
+            const originalTrimEnd = originalTimelineClip.clip.videoOffsetEnd !== undefined
+              ? originalTimelineClip.clip.videoOffsetEnd
+              : originalTimelineClip.trimEnd
             
             console.log('Splitting clip at playhead:')
             console.log('  Playhead time:', playheadTime)
             console.log('  Clip offsetStart:', clipOffsetStart, 'offsetEnd:', clipOffsetEnd)
             console.log('  Split time in original video:', splitTimeInOriginal)
+            console.log('  Original trimStart:', originalTrimStart, 'trimEnd:', originalTrimEnd)
             
-            // Create two NEW independent clip objects (not just timeline clips)
+            // Calculate durations for the two new clips
+            // Clip 1: from clipOffsetStart to splitTimeInOriginal
             const clip1Duration = splitTimeInOriginal - clipOffsetStart
+            // Clip 2: from splitTimeInOriginal to clipOffsetEnd
             const clip2Duration = clipOffsetEnd - splitTimeInOriginal
             
+            // For clip 1: Preserve trim from the beginning
+            // If original clip had trimStart > 0, clip1 should show that trim
+            // clip1's trimStart relative to its own range (clipOffsetStart to splitTimeInOriginal)
+            // should be 0, but we need to preserve the visual representation
+            // Actually, since clip1 represents clipOffsetStart to splitTimeInOriginal,
+            // and clipOffsetStart already accounts for the original trim, clip1 should have trimStart = 0
+            // But wait - we need to check if the original clip had trimStart relative to the full video
+            
+            // Get the original full video duration to calculate trim properly
+            const originalFullDuration = originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration
+            
+            // Clip 1: starts at clipOffsetStart, ends at splitTimeInOriginal
+            // If originalTrimStart < clipOffsetStart, we need to preserve that visual trim
+            // Actually, clipOffsetStart IS the originalTrimStart (active region start)
+            // So clip1 should have trimStart = 0 (no trim at start of its range)
+            // But we need to preserve the visual representation...
+            
+            // I think the issue is: clip1 should show the same visual trim as the original clip had
+            // But clip1 only represents a portion of the original clip
+            // Let me think differently: clip1's trimStart should be relative to clipOffsetStart
+            
+            // Actually, I think the user wants:
+            // - Clip 1: videoOffsetStart = clipOffsetStart, videoOffsetEnd = splitTimeInOriginal
+            //   - trimStart = 0 (relative to clipOffsetStart)
+            //   - trimEnd = clip1Duration (relative to clipOffsetStart)
+            //   - But visually, it should show grey area if originalTrimStart > 0
+            
+            // Wait, I think I need to reconsider. The visual representation on timeline depends on:
+            // - startTime (where clip is positioned)
+            // - clip.duration (full visual width)
+            // - trimStart/trimEnd (active region within that width)
+            
+            // So if clip1 has duration = clip1Duration and trimStart = 0, trimEnd = clip1Duration,
+            // it will show no grey area. But the user wants to preserve the grey area.
+            
+            // I think the solution is: clip1 should have a duration that includes the trim area,
+            // and trimStart/trimEnd that preserve the trim within that duration.
+            
+            // If original clip had trimStart relative to full video, and we're splitting,
+            // clip1 should preserve that trim relative to its portion.
+            // But clip1's videoOffsetStart = clipOffsetStart (which is the active start),
+            // so there's no trim to preserve within clip1's range.
+            
+            // UNLESS... the user wants clip1 to represent the full visual span from the original clip's start
+            // Let me check: originalTimelineClip.startTime is where the clip starts visually
+            // originalTimelineClip.trimStart is trim relative to that visual start
+            // So if originalTimelineClip.trimStart > 0, the clip shows grey area at the start
+            
+            // When we split, clip1 should start at originalTimelineClip.startTime
+            // and clip1 should preserve originalTimelineClip.trimStart as its trimStart
+            // But clip1's duration is clip1Duration, not the full original duration
+            
+            // I think the correct approach is:
+            // - Clip1's visual start = originalTimelineClip.startTime
+            // - Clip1's duration = clip1Duration (from clipOffsetStart to splitTimeInOriginal)
+            // - Clip1's trimStart = originalTimelineClip.trimStart (preserve the trim)
+            // - Clip1's trimEnd = originalTimelineClip.trimStart + clip1Duration
+            
+            // Actually wait, that doesn't work either because trimStart/trimEnd are relative to the clip's duration
+            
+            // Let me think more carefully. The original timeline clip has:
+            // - startTime: where it's positioned on timeline
+            // - trimStart: trim relative to startTime (grey area before active region)
+            // - trimEnd: end of active region relative to startTime
+            // - clip.duration: full video duration
+            
+            // When splitting at playhead:
+            // - playheadTime is absolute timeline position
+            // - playheadRelativeToClip = playheadTime - startTime
+            // - splitTimeInOriginal = clipOffsetStart + playheadRelativeToClip
+            
+            // For clip1:
+            // - Should start at originalTimelineClip.startTime
+            // - Should end at playheadTime (visually)
+            // - Should preserve originalTimelineClip.trimStart as its trimStart
+            // - Should have trimEnd = playheadRelativeToClip (relative to clip1's start)
+            
+            // So clip1's trimStart = originalTimelineClip.trimStart (preserved)
+            // clip1's trimEnd = playheadRelativeToClip
+            
+            // For clip2:
+            // - Should start at playheadTime
+            // - Should end at originalTimelineClip.startTime + originalTimelineClip.clip.duration
+            // - Should have trimStart = 0 (no trim at start of clip2)
+            // - Should preserve originalTimelineClip.trimEnd as its trimEnd (relative to clip2's start)
+            
+            // Actually, trimEnd is relative to the clip's duration, not absolute
+            
+            // Let me reconsider: trimStart and trimEnd on timeline clips are relative to startTime
+            // So clip1.trimStart = originalTimelineClip.trimStart (same relative position)
+            // clip1.trimEnd = playheadTime - originalTimelineClip.startTime (relative to clip1's startTime)
+            
+            // clip2.trimStart = 0 (no trim at start, since we're splitting at active region)
+            // clip2.trimEnd = originalTimelineClip.trimEnd - (playheadTime - originalTimelineClip.startTime)
+            
+            // Calculate visual duration for clip1 (from original clip's start to split point)
+            // This needs to include the trim area to preserve visual representation
+            const clip1VisualDuration = playheadRelativeToClip // From startTime to playheadTime
+            
+            // Calculate trim values for clip1 (preserve original trim at start)
+            const clip1TrimStart = originalTimelineClip.trimStart // Preserve original trim
+            const clip1TrimEnd = playheadRelativeToClip // End at split point (relative to clip1's startTime)
+            
+            // Calculate visual duration for clip2 (from split point to original clip's end)
+            const originalClipVisualEnd = originalTimelineClip.startTime + originalTimelineClip.clip.duration
+            const clip2VisualDuration = originalClipVisualEnd - playheadTime
+            
+            // Calculate trim values for clip2 (no trim at start, preserve end trim if any)
+            const clip2TrimStart = 0 // No trim at start of clip2
+            const clip2TrimEndRelative = originalTimelineClip.trimEnd - playheadRelativeToClip
+            const clip2TrimEnd = Math.max(0, clip2TrimEndRelative) // Ensure non-negative
+            
             // New clip 1: represents first half of the split
+            // Visual duration includes trim area, video offsets represent actual video content
             const newClip1 = {
               ...originalTimelineClip.clip,
               id: Date.now(),
-              duration: clip1Duration, // NEW: Set duration to only this portion
+              duration: clip1VisualDuration, // Visual duration (includes trim area)
               filePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
               originalFilePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
               originalDuration: originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration,
@@ -537,15 +670,15 @@ function App() {
               videoOffsetEnd: splitTimeInOriginal, // Where in original video this clip ends
               isSplitClip: true,
               splitSource: originalTimelineClip.clip.splitSource || originalTimelineClip.clip.id,
-              trimStart: 0, // Use full clip duration
-              trimEnd: clip1Duration // Use full clip duration
+              trimStart: 0, // Relative to clip1's videoOffsetStart (no trim at start of this portion)
+              trimEnd: clip1Duration // Active duration (from clipOffsetStart to splitTimeInOriginal)
             }
             
             // New clip 2: represents second half of the split
             const newClip2 = {
               ...originalTimelineClip.clip,
               id: Date.now() + 1,
-              duration: clip2Duration, // NEW: Set duration to only this portion
+              duration: clip2VisualDuration, // Visual duration (from split to original clip end)
               filePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
               originalFilePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
               originalDuration: originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration,
@@ -553,30 +686,30 @@ function App() {
               videoOffsetEnd: clipOffsetEnd, // Where in original video this clip ends
               isSplitClip: true,
               splitSource: originalTimelineClip.clip.splitSource || originalTimelineClip.clip.id,
-              trimStart: 0, // Use full clip duration
-              trimEnd: clip2Duration // Use full clip duration
+              trimStart: 0, // Relative to clip2's videoOffsetStart (no trim at start of this portion)
+              trimEnd: clip2Duration // Active duration (from splitTimeInOriginal to clipOffsetEnd)
             }
             
-            // Clip 1: First half - uses full duration with no trim
+            // Clip 1: First half - preserve original trim at start
             const timelineClip1 = {
               clipId: newClip1.id,
               startTime: 0, // Will be repositioned
-              trimStart: 0, // Use full clip
-              trimEnd: clip1Duration, // Use full clip
+              trimStart: clip1TrimStart, // Preserve original trim at start
+              trimEnd: clip1TrimEnd, // End at split point
               clip: newClip1 // Reference to new clip object
             }
             
-            // Clip 2: Second half - uses full duration with no trim
+            // Clip 2: Second half - no trim at start, preserve end trim if any
             const timelineClip2 = {
               clipId: newClip2.id,
               startTime: 0, // Will be repositioned
-              trimStart: 0, // Use full clip
-              trimEnd: clip2Duration, // Use full clip
+              trimStart: clip2TrimStart, // No trim at start
+              trimEnd: clip2TrimEnd, // Preserve end trim if any
               clip: newClip2 // Reference to new clip object
             }
             
-            console.log('  Clip 1 duration:', clip1Duration, 'trim:', timelineClip1.trimStart, 'to', timelineClip1.trimEnd)
-            console.log('  Clip 2 duration:', clip2Duration, 'trim:', timelineClip2.trimStart, 'to', timelineClip2.trimEnd)
+            console.log('  Clip 1 visual duration:', clip1VisualDuration, 'active duration:', clip1Duration, 'trim:', timelineClip1.trimStart, 'to', timelineClip1.trimEnd)
+            console.log('  Clip 2 visual duration:', clip2VisualDuration, 'active duration:', clip2Duration, 'trim:', timelineClip2.trimStart, 'to', timelineClip2.trimEnd)
             
             // Replace original clip with two split clips
             track.clips[i] = timelineClip1

@@ -53,20 +53,39 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
     
     // ONLY reset to first clip when clips actually changed (not just timeline object reference)
     if (clipsChanged && timelineClips.length > 0) {
-      console.log('TimelinePreview: Clips changed, resetting to clip 0')
-      setCurrentClipIndex(0)
-      actualClipIndexRef.current = 0
-      // Start at the beginning (relative to timeline)
-      setCurrentTime(0)
-      currentTimeRef.current = 0
-      lastPlayheadPositionRef.current = null // Reset last position
+      // Check if timeline has a valid playhead position set (e.g., after split, we want to preserve it)
+      const hasValidPlayhead = timeline?.playheadPosition !== undefined && 
+                                timeline?.playheadPosition !== null &&
+                                timeline.playheadPosition >= 0
       
-      // Update playhead to match (timeline starts at first clip's startTime + trimStart)
-      const firstClip = timelineClips[0]
-      const firstClipStartTime = firstClip?.startTime || 0
-      const firstClipTrimStart = firstClip?.trimStart || 0
-      if (onPlayheadMove) {
-        onPlayheadMove(firstClipStartTime + firstClipTrimStart)
+      // Only reset to beginning if:
+      // 1. Timeline was empty before (first clip being added)
+      // 2. No valid playhead position is set
+      const wasEmpty = prevClips.length === 0
+      const shouldResetToBeginning = wasEmpty || !hasValidPlayhead
+      
+      if (shouldResetToBeginning) {
+        console.log('TimelinePreview: Clips changed, resetting to clip 0 (first clip or no playhead)')
+        setCurrentClipIndex(0)
+        actualClipIndexRef.current = 0
+        // Start at the beginning (relative to timeline)
+        setCurrentTime(0)
+        currentTimeRef.current = 0
+        lastPlayheadPositionRef.current = null // Reset last position
+        
+        // Update playhead to match (timeline starts at first clip's startTime + trimStart)
+        const firstClip = timelineClips[0]
+        const firstClipStartTime = firstClip?.startTime || 0
+        const firstClipTrimStart = firstClip?.trimStart || 0
+        if (onPlayheadMove) {
+          onPlayheadMove(firstClipStartTime + firstClipTrimStart)
+        }
+      } else {
+        // Preserve existing playhead position (e.g., after split)
+        console.log('TimelinePreview: Clips changed, preserving playhead position:', timeline.playheadPosition)
+        // Don't reset clip index or time - let the playhead sync effect handle positioning
+        // Just clear the last position ref so the sync effect can work properly
+        lastPlayheadPositionRef.current = null
       }
     } else {
       console.log('TimelinePreview: Timeline updated but clips unchanged - not resetting')
