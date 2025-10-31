@@ -409,6 +409,7 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
             console.log('  Next clip videoOffsetStart:', nextClip.clip.videoOffsetStart, 'videoOffsetEnd:', nextClip.clip.videoOffsetEnd)
             // Check if clips are from the same source file (for split clips)
             // Compare file paths strictly - both must exist and match exactly
+            // Normalize paths by using originalFilePath if available, otherwise filePath
             const currentFilePath = currentClip.clip.originalFilePath || currentClip.clip.filePath
             const nextFilePath = nextClip.clip.originalFilePath || nextClip.clip.filePath
             const isSameSource = currentFilePath && nextFilePath && currentFilePath === nextFilePath
@@ -649,9 +650,14 @@ const TimelinePreview = ({ timeline, onPlayheadMove }) => {
         console.log('  Next clip:', nextClip?.clip?.fileName)
         
         // Check if next clip is from a different source file
-        const isSameSource = nextClip?.clip && currentClip?.clip &&
-          (nextClip.clip.originalFilePath === currentClip.clip.originalFilePath || 
-           nextClip.clip.filePath === currentClip.clip.filePath)
+        // Normalize paths by using originalFilePath if available, otherwise filePath
+        const currentFilePath = currentClip?.clip?.originalFilePath || currentClip?.clip?.filePath
+        const nextFilePath = nextClip?.clip?.originalFilePath || nextClip?.clip?.filePath
+        const isSameSource = currentFilePath && nextFilePath && currentFilePath === nextFilePath
+        
+        console.log('  Same source file?', isSameSource)
+        console.log('  Current file:', currentFilePath)
+        console.log('  Next file:', nextFilePath)
         
         if (!isSameSource) {
           // Different source file - need to reload video
