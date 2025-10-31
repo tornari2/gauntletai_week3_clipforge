@@ -473,7 +473,7 @@ const HorizontalTimeline = ({
   }
 
   // Handle zoom with playhead-centered behavior
-  const handleZoomWithPlayhead = (zoomFn) => {
+  const handleZoomWithPlayhead = (zoomFn, zoomType = 'unknown') => {
     if (!scrollContainerRef.current || visualPlayheadPosition === null) {
       // No playhead or scroll container, just zoom normally
       zoomFn()
@@ -481,51 +481,71 @@ const HorizontalTimeline = ({
     }
 
     const scrollContainer = scrollContainerRef.current
-    const oldZoomLevel = timeline.zoomLevel || 1.0
+    const currentZoomLevel = timeline.zoomLevel || 1.0
+    
+    // Calculate what the new zoom level will be based on the zoom type
+    let newZoomLevel
+    if (zoomType === 'in') {
+      newZoomLevel = Math.min(currentZoomLevel * 1.2, 4.0)
+    } else if (zoomType === 'out') {
+      newZoomLevel = Math.max(currentZoomLevel / 1.2, 0.5)
+    } else if (zoomType === 'reset') {
+      newZoomLevel = 1.0
+    } else {
+      // Unknown zoom type, calculate from function by comparing to known functions
+      // This is a fallback, but ideally zoomType should always be provided
+      if (zoomFn === onZoomIn) {
+        newZoomLevel = Math.min(currentZoomLevel * 1.2, 4.0)
+      } else if (zoomFn === onZoomOut) {
+        newZoomLevel = Math.max(currentZoomLevel / 1.2, 0.5)
+      } else {
+        newZoomLevel = 1.0
+      }
+    }
     
     // Calculate OLD pixels per second (before zoom)
     const oldBasePixelsPerSecond = timeline.duration > 0 
       ? containerWidthRef.current / timeline.duration 
       : BASE_PIXELS_PER_SECOND
-    const oldPixelsPerSecond = Math.max(0.1, oldBasePixelsPerSecond * oldZoomLevel)
+    const oldPixelsPerSecond = Math.max(0.1, oldBasePixelsPerSecond * currentZoomLevel)
     
     // Calculate playhead position in pixels before zoom (add 92px for track label offset)
     const oldPlayheadPixelPos = visualPlayheadPosition * oldPixelsPerSecond + 92
-    const oldScrollLeft = scrollContainer.scrollLeft
-    const playheadOffsetFromLeft = oldPlayheadPixelPos - oldScrollLeft
+    const containerWidth = scrollContainer.clientWidth
 
     // Apply zoom
     zoomFn()
 
-    // Wait for next frame to recalculate after state update
+    // Wait for React to update state and DOM to re-render
+    // Use a double requestAnimationFrame to ensure layout has updated
     requestAnimationFrame(() => {
-      const newZoomLevel = timeline.zoomLevel || 1.0
-      
-      // Calculate NEW pixels per second (after zoom)
-      const newBasePixelsPerSecond = timeline.duration > 0 
-        ? containerWidthRef.current / timeline.duration 
-        : BASE_PIXELS_PER_SECOND
-      const newPixelsPerSecond = Math.max(0.1, newBasePixelsPerSecond * newZoomLevel)
-      
-      // Calculate new playhead pixel position with new scale (add 92px offset)
-      const newPlayheadPixelPos = visualPlayheadPosition * newPixelsPerSecond + 92
-      
-      // Adjust scroll to keep playhead in same visual position on screen
-      const newScrollLeft = newPlayheadPixelPos - playheadOffsetFromLeft
-      scrollContainer.scrollLeft = Math.max(0, newScrollLeft)
+      requestAnimationFrame(() => {
+        // Calculate NEW pixels per second (after zoom)
+        const newBasePixelsPerSecond = timeline.duration > 0 
+          ? containerWidthRef.current / timeline.duration 
+          : BASE_PIXELS_PER_SECOND
+        const newPixelsPerSecond = Math.max(0.1, newBasePixelsPerSecond * newZoomLevel)
+        
+        // Calculate new playhead pixel position with new scale (add 92px offset)
+        const newPlayheadPixelPos = visualPlayheadPosition * newPixelsPerSecond + 92
+        
+        // Center the playhead in the viewport by adjusting scroll position
+        const newScrollLeft = newPlayheadPixelPos - (containerWidth / 2)
+        scrollContainer.scrollLeft = Math.max(0, Math.min(newScrollLeft, scrollContainer.scrollWidth - containerWidth))
+      })
     })
   }
 
   const handleZoomInClick = () => {
-    handleZoomWithPlayhead(onZoomIn)
+    handleZoomWithPlayhead(onZoomIn, 'in')
   }
 
   const handleZoomOutClick = () => {
-    handleZoomWithPlayhead(onZoomOut)
+    handleZoomWithPlayhead(onZoomOut, 'out')
   }
 
   const handleZoomResetClick = () => {
-    handleZoomWithPlayhead(onZoomReset)
+    handleZoomWithPlayhead(onZoomReset, 'reset')
   }
 
   return (
