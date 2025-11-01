@@ -7,6 +7,7 @@ import HorizontalTimeline from './components/HorizontalTimeline'
 
 function App() {
   const [clips, setClips] = useState([])
+  const [subtitleFiles, setSubtitleFiles] = useState([])
   const [selectedClip, setSelectedClip] = useState(null)
   const [editableClip, setEditableClip] = useState(null) // Clip that can be edited
   const [lastDropTime, setLastDropTime] = useState(0) // Track last drop time to prevent duplicates
@@ -16,11 +17,12 @@ function App() {
   const [timeline, setTimeline] = useState({
     tracks: [
       { id: 1, name: "Main", clips: [] },
-      { id: 2, name: "Overlay", clips: [] }
+      { id: 2, name: "Subtitles", clips: [] }
     ],
     duration: 0,
     playheadPosition: 0,
-    zoomLevel: 1.0
+    zoomLevel: 1.0,
+    subtitles: [] // Array of subtitle segments: { id, startTime, endTime, text, clipId }
   })
 
   // Debug: Check if electronAPI is available
@@ -34,6 +36,51 @@ function App() {
     console.log('App: Current selectedClip state:', selectedClip)
     console.log('=== APP LOADING DEBUG END ===')
   }, [])
+
+  const handleSubtitleImported = (subtitleData) => {
+    console.log('App: Subtitle imported:', subtitleData)
+    
+    // Try to match subtitle file with a video file by base name
+    // Extract base name (without extension) from subtitle file
+    const subtitleBaseName = subtitleData.fileName.replace(/\.[^/.]+$/, '')
+    
+    // Find matching video file by base name
+    const matchingVideo = clips.find(clip => {
+      const videoBaseName = clip.fileName.replace(/\.[^/.]+$/, '')
+      return videoBaseName === subtitleBaseName || 
+             videoBaseName === subtitleBaseName.replace(/_subtitles$/, '') ||
+             subtitleBaseName === videoBaseName + '_subtitles'
+    })
+    
+    // Determine the display name
+    let displayName = subtitleData.fileName
+    if (matchingVideo) {
+      // Use video file base name + "_subtitles" + subtitle extension
+      const videoBaseName = matchingVideo.fileName.replace(/\.[^/.]+$/, '')
+      const subtitleExt = subtitleData.fileName.match(/\.[^/.]+$/)
+      displayName = `${videoBaseName}_subtitles${subtitleExt ? subtitleExt[0] : '.srt'}`
+    }
+    
+    const newSubtitleFile = {
+      id: Date.now(),
+      filePath: subtitleData.filePath,
+      fileName: displayName, // Use renamed display name
+      originalFileName: subtitleData.fileName, // Keep original for reference
+      fileSize: subtitleData.fileSize,
+      subtitles: subtitleData.subtitles || [],
+      associatedVideoId: matchingVideo?.id || null
+    }
+    
+    setSubtitleFiles(prev => [...prev, newSubtitleFile])
+    
+    // Don't automatically add to timeline - user must drag them manually
+    if (subtitleData.subtitles && subtitleData.subtitles.length > 0) {
+      const matchMsg = matchingVideo ? ` (matched with ${matchingVideo.fileName})` : ''
+      alert(`Subtitle file imported: ${displayName} (${subtitleData.subtitles.length} segments)${matchMsg}. Drag to timeline to add.`)
+    } else {
+      alert(`Subtitle file imported but no valid segments found: ${displayName}`)
+    }
+  }
 
   const handleVideoImported = (videoData) => {
     console.log('=== APP COMPONENT DEBUG START ===')
@@ -90,6 +137,23 @@ function App() {
 
   const handleClipDelete = (clipId) => {
     console.log('App: Deleting clip from media library:', clipId)
+    
+    // Check if it's a subtitle file
+    const subtitleFile = subtitleFiles.find(sf => sf.id === clipId)
+    if (subtitleFile) {
+      // Remove subtitle file
+      setSubtitleFiles(prev => prev.filter(sf => sf.id !== clipId))
+      
+      // Remove associated subtitles from timeline
+      setTimeline(prevTimeline => ({
+        ...prevTimeline,
+        subtitles: prevTimeline.subtitles.filter(subtitle => 
+          !subtitleFile.subtitles.some(s => s.id === subtitle.id)
+        )
+      }))
+      
+      return
+    }
     
     // Remove from clips array
     setClips(prevClips => prevClips.filter(clip => clip.id !== clipId))
@@ -217,6 +281,45 @@ function App() {
   }
 
   const handleClipDrop = (clip, trackId) => {
+    // Check if it's a subtitle file
+    if (clip.type === 'subtitle') {
+      // Add subtitles to timeline
+      if (clip.subtitles && clip.subtitles.length > 0) {
+        // Find associated video to determine track name
+        let trackName = 'Subtitles'
+        if (clip.associatedVideoId) {
+          const associatedVideo = clips.find(c => c.id === clip.associatedVideoId)
+          if (associatedVideo) {
+            const videoBaseName = associatedVideo.fileName.replace(/\.[^/.]+$/, '')
+            trackName = `${videoBaseName}_subtitles`
+          }
+        } else {
+          // Try to match by name or find first video in timeline
+          const mainTrack = timeline.tracks.find(t => t.id === 1)
+          if (mainTrack && mainTrack.clips.length > 0) {
+            // Use first video clip's name
+            const firstVideo = mainTrack.clips[0].clip
+            const videoBaseName = firstVideo.fileName.replace(/\.[^/.]+$/, '')
+            trackName = `${videoBaseName}_subtitles`
+          }
+        }
+        
+        setTimeline(prevTimeline => {
+          const newTimeline = { ...prevTimeline }
+          // Update subtitle track name
+          const subtitleTrack = newTimeline.tracks.find(t => t.id === 2)
+          if (subtitleTrack) {
+            subtitleTrack.name = trackName
+          }
+          // Add subtitle segments (keep them separate)
+          newTimeline.subtitles = [...prevTimeline.subtitles, ...clip.subtitles]
+          return newTimeline
+        })
+        alert(`Subtitles added to timeline: ${clip.subtitles.length} segments`)
+      }
+      return
+    }
+    
     const currentTime = Date.now()
     console.log('App: Clip dropped:', clip, 'on track:', trackId, 'at time:', currentTime)
     
@@ -269,7 +372,7 @@ function App() {
     )
     
     setTimeline(prevTimeline => {
-      const newTimeline = { ...prevTimeline }
+      const newTimeline = { ...prevTimeline, subtitles: [...prevTimeline.subtitles] }
       const track = newTimeline.tracks.find(t => t.id === trackId)
       
       if (track) {
@@ -279,6 +382,9 @@ function App() {
         const afterCount = track.clips.length
         
         console.log('App: Removed clip from timeline:', timelineClip.clipId, 'clips before:', beforeCount, 'clips after:', afterCount)
+        
+        // Remove associated subtitle segments
+        newTimeline.subtitles = newTimeline.subtitles.filter(subtitle => subtitle.clipId !== timelineClip.clipId)
         
         // Reposition remaining clips in track
         track.clips = repositionClipsInTrack(track.clips)
@@ -324,7 +430,7 @@ function App() {
     
     // Update the timeline clip - ONLY update trim values, do NOT reposition
     setTimeline(prevTimeline => {
-      const newTimeline = { ...prevTimeline }
+      const newTimeline = { ...prevTimeline, subtitles: [...prevTimeline.subtitles] }
       
       let affectedClip = null
       let oldTrimStart = 0
@@ -352,6 +458,31 @@ function App() {
           return clip
         })
       })
+      
+      // Adjust subtitle segments for the trimmed clip
+      if (affectedClip) {
+        const clipVisualStart = affectedClip.startTime
+        const newActiveStart = affectedClip.startTime + affectedClip.trimStart
+        const newActiveEnd = affectedClip.startTime + affectedClip.trimEnd
+        
+        // Filter out or adjust subtitle segments that fall outside the active region
+        newTimeline.subtitles = newTimeline.subtitles.map(subtitle => {
+          if (subtitle.clipId === clipId) {
+            // Check if subtitle is within the new active region
+            if (subtitle.endTime <= newActiveStart || subtitle.startTime >= newActiveEnd) {
+              // Subtitle is completely outside the active region - mark for removal
+              return null
+            } else if (subtitle.startTime < newActiveStart && subtitle.endTime > newActiveStart) {
+              // Subtitle starts before active region - trim the start
+              return { ...subtitle, startTime: newActiveStart }
+            } else if (subtitle.endTime > newActiveEnd && subtitle.startTime < newActiveEnd) {
+              // Subtitle ends after active region - trim the end
+              return { ...subtitle, endTime: newActiveEnd }
+            }
+          }
+          return subtitle
+        }).filter(Boolean) // Remove null entries
+      }
       
       // Playhead adjustment logic: Move playhead if trim handle passes it
       if (affectedClip && currentPlayheadPosition !== undefined && currentPlayheadPosition !== null) {
@@ -479,7 +610,8 @@ function App() {
       // Deep copy the timeline to avoid mutation
       const newTimeline = {
         ...prevTimeline,
-        tracks: prevTimeline.tracks.map(t => ({ ...t, clips: [...t.clips] }))
+        tracks: prevTimeline.tracks.map(t => ({ ...t, clips: [...t.clips] })),
+        subtitles: [...prevTimeline.subtitles]
       }
       
       // Find clip under playhead in active region
@@ -517,17 +649,11 @@ function App() {
             // Calculate where the playhead is relative to the clip's start on timeline
             const playheadRelativeToClip = playheadTime - originalTimelineClip.startTime
             // Map to original video time
-            // The timeline shows the full clip duration visually, so we need to map correctly:
-            // - For regular clips: playheadRelativeToClip maps directly to original video time
-            // - For split clips: playheadRelativeToClip is relative to videoOffsetStart
-            // - For trimmed clips: we need to account for trimStart
-            // The playhead is in the active region, so: splitTimeInOriginal = clipOffsetStart + (playheadRelativeToClip - trimStart)
             const splitTimeInOriginal = clipOffsetStart + (playheadRelativeToClip - originalTimelineClip.trimStart)
             
             // Get original clip's trim values (relative to full original video)
-            // If this is already a split clip, we need to preserve the original trim
             const originalTrimStart = originalTimelineClip.clip.videoOffsetStart !== undefined
-              ? originalTimelineClip.clip.videoOffsetStart  // Already accounts for original trim
+              ? originalTimelineClip.clip.videoOffsetStart
               : originalTimelineClip.trimStart
             const originalTrimEnd = originalTimelineClip.clip.videoOffsetEnd !== undefined
               ? originalTimelineClip.clip.videoOffsetEnd
@@ -537,179 +663,76 @@ function App() {
             console.log('  Playhead time:', playheadTime)
             console.log('  Clip offsetStart:', clipOffsetStart, 'offsetEnd:', clipOffsetEnd)
             console.log('  Split time in original video:', splitTimeInOriginal)
-            console.log('  Original trimStart:', originalTrimStart, 'trimEnd:', originalTrimEnd)
             
             // Calculate durations for the two new clips
-            // Clip 1: from clipOffsetStart to splitTimeInOriginal
             const clip1Duration = splitTimeInOriginal - clipOffsetStart
-            // Clip 2: from splitTimeInOriginal to clipOffsetEnd
             const clip2Duration = clipOffsetEnd - splitTimeInOriginal
             
-            // For clip 1: Preserve trim from the beginning
-            // If original clip had trimStart > 0, clip1 should show that trim
-            // clip1's trimStart relative to its own range (clipOffsetStart to splitTimeInOriginal)
-            // should be 0, but we need to preserve the visual representation
-            // Actually, since clip1 represents clipOffsetStart to splitTimeInOriginal,
-            // and clipOffsetStart already accounts for the original trim, clip1 should have trimStart = 0
-            // But wait - we need to check if the original clip had trimStart relative to the full video
+            // Calculate visual duration for clip1
+            const clip1VisualDuration = playheadRelativeToClip
             
-            // Get the original full video duration to calculate trim properly
-            const originalFullDuration = originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration
+            // Calculate trim values for clip1
+            const clip1TrimStart = originalTimelineClip.trimStart
+            const clip1TrimEnd = playheadRelativeToClip
             
-            // Clip 1: starts at clipOffsetStart, ends at splitTimeInOriginal
-            // If originalTrimStart < clipOffsetStart, we need to preserve that visual trim
-            // Actually, clipOffsetStart IS the originalTrimStart (active region start)
-            // So clip1 should have trimStart = 0 (no trim at start of its range)
-            // But we need to preserve the visual representation...
-            
-            // I think the issue is: clip1 should show the same visual trim as the original clip had
-            // But clip1 only represents a portion of the original clip
-            // Let me think differently: clip1's trimStart should be relative to clipOffsetStart
-            
-            // Actually, I think the user wants:
-            // - Clip 1: videoOffsetStart = clipOffsetStart, videoOffsetEnd = splitTimeInOriginal
-            //   - trimStart = 0 (relative to clipOffsetStart)
-            //   - trimEnd = clip1Duration (relative to clipOffsetStart)
-            //   - But visually, it should show grey area if originalTrimStart > 0
-            
-            // Wait, I think I need to reconsider. The visual representation on timeline depends on:
-            // - startTime (where clip is positioned)
-            // - clip.duration (full visual width)
-            // - trimStart/trimEnd (active region within that width)
-            
-            // So if clip1 has duration = clip1Duration and trimStart = 0, trimEnd = clip1Duration,
-            // it will show no grey area. But the user wants to preserve the grey area.
-            
-            // I think the solution is: clip1 should have a duration that includes the trim area,
-            // and trimStart/trimEnd that preserve the trim within that duration.
-            
-            // If original clip had trimStart relative to full video, and we're splitting,
-            // clip1 should preserve that trim relative to its portion.
-            // But clip1's videoOffsetStart = clipOffsetStart (which is the active start),
-            // so there's no trim to preserve within clip1's range.
-            
-            // UNLESS... the user wants clip1 to represent the full visual span from the original clip's start
-            // Let me check: originalTimelineClip.startTime is where the clip starts visually
-            // originalTimelineClip.trimStart is trim relative to that visual start
-            // So if originalTimelineClip.trimStart > 0, the clip shows grey area at the start
-            
-            // When we split, clip1 should start at originalTimelineClip.startTime
-            // and clip1 should preserve originalTimelineClip.trimStart as its trimStart
-            // But clip1's duration is clip1Duration, not the full original duration
-            
-            // I think the correct approach is:
-            // - Clip1's visual start = originalTimelineClip.startTime
-            // - Clip1's duration = clip1Duration (from clipOffsetStart to splitTimeInOriginal)
-            // - Clip1's trimStart = originalTimelineClip.trimStart (preserve the trim)
-            // - Clip1's trimEnd = originalTimelineClip.trimStart + clip1Duration
-            
-            // Actually wait, that doesn't work either because trimStart/trimEnd are relative to the clip's duration
-            
-            // Let me think more carefully. The original timeline clip has:
-            // - startTime: where it's positioned on timeline
-            // - trimStart: trim relative to startTime (grey area before active region)
-            // - trimEnd: end of active region relative to startTime
-            // - clip.duration: full video duration
-            
-            // When splitting at playhead:
-            // - playheadTime is absolute timeline position
-            // - playheadRelativeToClip = playheadTime - startTime
-            // - splitTimeInOriginal = clipOffsetStart + playheadRelativeToClip
-            
-            // For clip1:
-            // - Should start at originalTimelineClip.startTime
-            // - Should end at playheadTime (visually)
-            // - Should preserve originalTimelineClip.trimStart as its trimStart
-            // - Should have trimEnd = playheadRelativeToClip (relative to clip1's start)
-            
-            // So clip1's trimStart = originalTimelineClip.trimStart (preserved)
-            // clip1's trimEnd = playheadRelativeToClip
-            
-            // For clip2:
-            // - Should start at playheadTime
-            // - Should end at originalTimelineClip.startTime + originalTimelineClip.clip.duration
-            // - Should have trimStart = 0 (no trim at start of clip2)
-            // - Should preserve originalTimelineClip.trimEnd as its trimEnd (relative to clip2's start)
-            
-            // Actually, trimEnd is relative to the clip's duration, not absolute
-            
-            // Let me reconsider: trimStart and trimEnd on timeline clips are relative to startTime
-            // So clip1.trimStart = originalTimelineClip.trimStart (same relative position)
-            // clip1.trimEnd = playheadTime - originalTimelineClip.startTime (relative to clip1's startTime)
-            
-            // clip2.trimStart = 0 (no trim at start, since we're splitting at active region)
-            // clip2.trimEnd = originalTimelineClip.trimEnd - (playheadTime - originalTimelineClip.startTime)
-            
-            // Calculate visual duration for clip1 (from original clip's start to split point)
-            // This needs to include the trim area to preserve visual representation
-            const clip1VisualDuration = playheadRelativeToClip // From startTime to playheadTime
-            
-            // Calculate trim values for clip1 (preserve original trim at start)
-            const clip1TrimStart = originalTimelineClip.trimStart // Preserve original trim
-            const clip1TrimEnd = playheadRelativeToClip // End at split point (relative to clip1's startTime)
-            
-            // Calculate visual duration for clip2 (from split point to original clip's end)
+            // Calculate visual duration for clip2
             const originalClipVisualEnd = originalTimelineClip.startTime + originalTimelineClip.clip.duration
             const clip2VisualDuration = originalClipVisualEnd - playheadTime
             
-            // Calculate trim values for clip2 (no trim at start, preserve end trim if any)
-            const clip2TrimStart = 0 // No trim at start of clip2
+            // Calculate trim values for clip2
+            const clip2TrimStart = 0
             const clip2TrimEndRelative = originalTimelineClip.trimEnd - playheadRelativeToClip
-            const clip2TrimEnd = Math.max(0, clip2TrimEndRelative) // Ensure non-negative
+            const clip2TrimEnd = Math.max(0, clip2TrimEndRelative)
             
             // New clip 1: represents first half of the split
-            // Visual duration includes trim area, video offsets represent actual video content
             const newClip1 = {
               ...originalTimelineClip.clip,
               id: Date.now(),
-              duration: clip1VisualDuration, // Visual duration (includes trim area)
+              duration: clip1VisualDuration,
               filePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
               originalFilePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
               originalDuration: originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration,
-              videoOffsetStart: clipOffsetStart, // Where in original video this clip starts
-              videoOffsetEnd: splitTimeInOriginal, // Where in original video this clip ends
+              videoOffsetStart: clipOffsetStart,
+              videoOffsetEnd: splitTimeInOriginal,
               isSplitClip: true,
               splitSource: originalTimelineClip.clip.splitSource || originalTimelineClip.clip.id,
-              trimStart: 0, // Relative to clip1's videoOffsetStart (no trim at start of this portion)
-              trimEnd: clip1Duration // Active duration (from clipOffsetStart to splitTimeInOriginal)
+              trimStart: 0,
+              trimEnd: clip1Duration
             }
             
             // New clip 2: represents second half of the split
             const newClip2 = {
               ...originalTimelineClip.clip,
               id: Date.now() + 1,
-              duration: clip2VisualDuration, // Visual duration (from split to original clip end)
+              duration: clip2VisualDuration,
               filePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
               originalFilePath: originalTimelineClip.clip.originalFilePath || originalTimelineClip.clip.filePath,
               originalDuration: originalTimelineClip.clip.originalDuration || originalTimelineClip.clip.duration,
-              videoOffsetStart: splitTimeInOriginal, // Where in original video this clip starts
-              videoOffsetEnd: clipOffsetEnd, // Where in original video this clip ends
+              videoOffsetStart: splitTimeInOriginal,
+              videoOffsetEnd: clipOffsetEnd,
               isSplitClip: true,
               splitSource: originalTimelineClip.clip.splitSource || originalTimelineClip.clip.id,
-              trimStart: 0, // Relative to clip2's videoOffsetStart (no trim at start of this portion)
-              trimEnd: clip2Duration // Active duration (from splitTimeInOriginal to clipOffsetEnd)
+              trimStart: 0,
+              trimEnd: clip2Duration
             }
             
-            // Clip 1: First half - preserve original trim at start
+            // Clip 1: First half
             const timelineClip1 = {
               clipId: newClip1.id,
-              startTime: 0, // Will be repositioned
-              trimStart: clip1TrimStart, // Preserve original trim at start
-              trimEnd: clip1TrimEnd, // End at split point
-              clip: newClip1 // Reference to new clip object
+              startTime: 0,
+              trimStart: clip1TrimStart,
+              trimEnd: clip1TrimEnd,
+              clip: newClip1
             }
             
-            // Clip 2: Second half - no trim at start, preserve end trim if any
+            // Clip 2: Second half
             const timelineClip2 = {
               clipId: newClip2.id,
-              startTime: 0, // Will be repositioned
-              trimStart: clip2TrimStart, // No trim at start
-              trimEnd: clip2TrimEnd, // Preserve end trim if any
-              clip: newClip2 // Reference to new clip object
+              startTime: 0,
+              trimStart: clip2TrimStart,
+              trimEnd: clip2TrimEnd,
+              clip: newClip2
             }
-            
-            console.log('  Clip 1 visual duration:', clip1VisualDuration, 'active duration:', clip1Duration, 'trim:', timelineClip1.trimStart, 'to', timelineClip1.trimEnd)
-            console.log('  Clip 2 visual duration:', clip2VisualDuration, 'active duration:', clip2Duration, 'trim:', timelineClip2.trimStart, 'to', timelineClip2.trimEnd)
             
             // Replace original clip with two split clips
             track.clips[i] = timelineClip1
@@ -721,10 +744,30 @@ function App() {
             // Recalculate timeline duration
             newTimeline.duration = recalculateTimelineDuration(newTimeline.tracks)
             
-            // DO NOT reset playhead after split - keep it at current position
-            // Playhead should remain where it was when splitting
+            // Split subtitle segments that overlap the split point
+            newTimeline.subtitles = newTimeline.subtitles.flatMap(subtitle => {
+              // Check if this subtitle belongs to the clip being split
+              if (subtitle.clipId === originalTimelineClip.clipId) {
+                // Subtitle belongs to the clip being split
+                // Check if split point is within this subtitle segment
+                if (subtitle.startTime < playheadTime && subtitle.endTime > playheadTime) {
+                  // Split the subtitle into two segments
+                  return [
+                    { ...subtitle, id: `subtitle_${Date.now()}_split1`, endTime: playheadTime, clipId: newClip1.id },
+                    { ...subtitle, id: `subtitle_${Date.now()}_split2`, startTime: playheadTime, clipId: newClip2.id }
+                  ]
+                } else if (subtitle.startTime < playheadTime) {
+                  // Subtitle is before split point, assign to clip 1
+                  return [{ ...subtitle, clipId: newClip1.id }]
+                } else {
+                  // Subtitle is after split point, assign to clip 2
+                  return [{ ...subtitle, clipId: newClip2.id }]
+                }
+              }
+              return [subtitle]
+            })
             
-            // Clear selection after split - clips should go back to blue
+            // Clear selection after split
             setSelectedClip(null)
             setEditableClip(null)
             
@@ -735,6 +778,130 @@ function App() {
       
       return prevTimeline
     })
+  }
+
+  // Handle transcription request
+  const handleTranscribe = async () => {
+    try {
+      // Get main track clips
+      const mainTrack = timeline.tracks.find(t => t.id === 1)
+      if (!mainTrack || mainTrack.clips.length === 0) {
+        alert('No clips in timeline to transcribe')
+        return
+      }
+      
+      // Check for API key - it should be loaded from .env automatically
+      const apiKey = await window.electronAPI.getOpenAIApiKey()
+      if (!apiKey) {
+        alert('OpenAI API key not found. Please set OPENAI_API_KEY in your .env file.')
+        return
+      }
+      
+      // Prepare clips data
+      const clipsData = mainTrack.clips.map(timelineClip => {
+        const startTime = timelineClip.clip.videoOffsetStart !== undefined 
+          ? timelineClip.clip.videoOffsetStart 
+          : timelineClip.trimStart
+        const endTime = timelineClip.clip.videoOffsetEnd !== undefined 
+          ? timelineClip.clip.videoOffsetEnd 
+          : timelineClip.trimEnd
+        
+        let filePath = timelineClip.clip.originalFilePath || timelineClip.clip.filePath
+        
+        // Normalize file path
+        if (filePath.startsWith('local://')) {
+          filePath = filePath.replace('local://', '')
+        }
+        if (filePath.startsWith('file://')) {
+          filePath = filePath.replace('file://', '')
+        }
+        
+        return {
+          filePath: filePath,
+          startTime: startTime,
+          duration: endTime - startTime,
+          clipId: timelineClip.clipId
+        }
+      })
+      
+      console.log('App: Starting transcription for clips:', clipsData)
+      
+      // Call transcription API
+      const result = await window.electronAPI.transcribeAudio({ clips: clipsData })
+      
+      if (result.success) {
+        console.log('App: Transcription complete, segments:', result.segments.length)
+        
+        // Map segments to timeline positions
+        let currentTimelinePosition = 0
+        const mappedSegments = result.segments.map((segment, index) => {
+          // Find which clip this segment belongs to based on timing
+          let clipId = null
+          let segmentStartTime = segment.startTime
+          let segmentEndTime = segment.endTime
+          
+          // Map segment times to timeline positions
+          let accumulatedTime = 0
+          for (const clip of clipsData) {
+            if (segment.startTime >= accumulatedTime && segment.startTime < accumulatedTime + clip.duration) {
+              clipId = clip.clipId
+              segmentStartTime = segment.startTime - accumulatedTime + currentTimelinePosition
+              segmentEndTime = segment.endTime - accumulatedTime + currentTimelinePosition
+              break
+            }
+            accumulatedTime += clip.duration
+            currentTimelinePosition += clip.duration
+          }
+          
+          return {
+            ...segment,
+            startTime: segmentStartTime,
+            endTime: segmentEndTime,
+            clipId: clipId
+          }
+        })
+        
+        // Update timeline with subtitles
+        setTimeline(prev => {
+          // Determine track name from first video clip
+          const mainTrack = prev.tracks.find(t => t.id === 1)
+          let trackName = 'Subtitles'
+          if (mainTrack && mainTrack.clips.length > 0) {
+            const firstVideo = mainTrack.clips[0].clip
+            const videoBaseName = firstVideo.fileName.replace(/\.[^/.]+$/, '')
+            trackName = `${videoBaseName}_subtitles`
+          }
+          
+          const newTimeline = { ...prev }
+          // Update subtitle track name
+          const subtitleTrack = newTimeline.tracks.find(t => t.id === 2)
+          if (subtitleTrack) {
+            subtitleTrack.name = trackName
+          }
+          
+          return {
+            ...newTimeline,
+            subtitles: mappedSegments
+          }
+        })
+        
+        alert('Transcription complete! Subtitles added to timeline.')
+      }
+      
+    } catch (error) {
+      console.error('App: Transcription error:', error)
+      alert(`Transcription failed: ${error.message}`)
+    }
+  }
+
+  // Handle subtitle deletion
+  const handleSubtitleDelete = (subtitle) => {
+    console.log('App: Deleting subtitle:', subtitle)
+    
+    setTimeline(prevTimeline => ({
+      ...prevTimeline,
+      subtitles: prevTimeline.subtitles.filter(s => s.id !== subtitle.id)
+    }))
   }
 
   // Reposition clip to new track/index
@@ -886,10 +1053,12 @@ function App() {
           <div className="sidebar">
             <MediaLibrary 
               clips={clips}
+              subtitleFiles={subtitleFiles}
               selectedClip={selectedClip}
               onClipSelect={handleClipSelect}
               onClipDelete={handleClipDelete}
               onVideoImported={handleVideoImported}
+              onSubtitleImported={handleSubtitleImported}
               onClipDragStart={handleClipDragStart}
               onRecordingComplete={handleRecordingComplete}
             />
@@ -925,6 +1094,8 @@ function App() {
                 onZoomReset={handleZoomReset}
                 selectedClip={editableClip}
                 onExportClick={() => setShowExportModal(true)}
+                onTranscribe={handleTranscribe}
+                onSubtitleDelete={handleSubtitleDelete}
               />
             </div>
           </div>

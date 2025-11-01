@@ -64,8 +64,10 @@ html {
 
 .file-import-header {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   width: 100%;
+  gap: 8px;
 }
 
 .file-import-header .btn {
@@ -583,6 +585,19 @@ html {
   opacity: 0.8;
 }
 
+.subtitle-badge {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.timeline-clip.subtitle-file {
+  border-left: 3px solid var(--accent-green);
+}
+
+.timeline-clip.subtitle-file:hover {
+  border-color: var(--accent-green);
+  background-color: rgba(80, 200, 120, 0.05);
+}
 
 .timeline-clip-metadata {
   display: flex;
@@ -1885,4 +1900,202 @@ html {
     width: 100%;
   }
 }
+
+/* AI Transcription Styles */
+.btn-ai {
+  background-color: #8b5cf6;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 0.2s;
+}
+
+.btn-ai:hover:not(:disabled) {
+  background-color: #7c3aed;
+}
+
+.btn-ai:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ai-icon {
+  font-size: 16px;
+  animation: sparkle 2s infinite;
+}
+
+@keyframes sparkle {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.8;
+  }
+}
+
+/* Transcription Progress Modal */
+.transcription-modal {
+  min-width: 400px;
+  max-width: 500px;
+}
+
+.transcription-progress {
+  padding: 16px 0;
+}
+
+.transcription-progress .progress-bar {
+  width: 100%;
+  height: 8px;
+  background-color: var(--bg-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.transcription-progress .progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #8b5cf6, #ec4899);
+  transition: width 0.3s ease;
+}
+
+.transcription-progress .progress-text {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+/* Subtitle Track Styles (Continuous Bar) */
+.timeline-subtitle-track {
+  height: 100%;
+  background: linear-gradient(135deg, #ec4899, #8b5cf6);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  opacity: 0.85;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.timeline-subtitle-track:hover {
+  opacity: 1;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.timeline-subtitle-track .subtitle-track-label {
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  padding: 8px 16px;
+  background-color: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* Subtitle Segment Styles (Timeline) */
+.timeline-subtitle-segment {
+  height: 50px;
+  background: linear-gradient(135deg, #ec4899, #8b5cf6);
+  border-radius: 4px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.timeline-subtitle-segment:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.timeline-subtitle-segment .subtitle-text {
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+/* Subtitle Overlay (Video Preview) */
+.subtitle-overlay {
+  position: absolute;
+  bottom: 60px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  padding: 0 20px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.subtitle-text-container {
+  background-color: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 4px;
+  font-size: 18px;
+  font-weight: 500;
+  text-align: center;
+  max-width: 80%;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* Export Subtitle Options */
+.subtitle-export-option {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.subtitle-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.subtitle-checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.subtitle-checkbox-label .checkbox-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.subtitle-info {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding-left: 26px;
+}
+
+/* Track Empty State for Subtitles */
+.timeline-track .track-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-style: italic;
+}
+
 

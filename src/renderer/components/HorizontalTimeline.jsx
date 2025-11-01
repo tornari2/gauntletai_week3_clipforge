@@ -16,15 +16,20 @@ const HorizontalTimeline = ({
   onZoomOut,
   onZoomReset,
   selectedClip,
-  onExportClick
+  onExportClick,
+  onTranscribe,
+  onSubtitleDelete
 }) => {
   const [isDraggingTrim, setIsDraggingTrim] = useState(false)
   const [trimDragData, setTrimDragData] = useState(null)
   const [isDraggingClip, setIsDraggingClip] = useState(false)
   const [clipDragData, setClipDragData] = useState(null)
   const [contextMenu, setContextMenu] = useState(null)
+  const [subtitleContextMenu, setSubtitleContextMenu] = useState(null)
   const [dragOverTrack, setDragOverTrack] = useState(null)
   const [snapIndicator, setSnapIndicator] = useState(null)
+  const [isTranscribing, setIsTranscribing] = useState(false)
+  const [transcriptionProgress, setTranscriptionProgress] = useState({ percent: 0, status: '' })
   
   const timelineRef = useRef(null)
   const scrollContainerRef = useRef(null)
@@ -409,6 +414,28 @@ const HorizontalTimeline = ({
     setContextMenu(null)
   }
 
+  // Subtitle context menu
+  const handleSubtitleContextMenu = (e, subtitle) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    setSubtitleContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      subtitle: subtitle
+    })
+  }
+
+  const handleSubtitleContextMenuAction = (action) => {
+    if (!subtitleContextMenu) return
+    
+    if (action === 'delete' && onSubtitleDelete) {
+      onSubtitleDelete(subtitleContextMenu.subtitle)
+    }
+    
+    setSubtitleContextMenu(null)
+  }
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyPress = (e) => {
@@ -449,13 +476,42 @@ const HorizontalTimeline = ({
   useEffect(() => {
     const handleClickOutside = () => {
       setContextMenu(null)
+      setSubtitleContextMenu(null)
     }
     
-    if (contextMenu) {
+    if (contextMenu || subtitleContextMenu) {
       document.addEventListener('click', handleClickOutside)
       return () => document.removeEventListener('click', handleClickOutside)
     }
-  }, [contextMenu])
+  }, [contextMenu, subtitleContextMenu])
+
+  // Listen for transcription progress
+  useEffect(() => {
+    const handleTranscriptionProgress = (data) => {
+      setTranscriptionProgress(data)
+    }
+    
+    if (window.electronAPI && window.electronAPI.onTranscriptionProgress) {
+      window.electronAPI.onTranscriptionProgress(handleTranscriptionProgress)
+    }
+  }, [])
+
+  // Handle transcribe button click
+  const handleTranscribeClick = async () => {
+    if (isTranscribing) return
+    
+    setIsTranscribing(true)
+    setTranscriptionProgress({ percent: 0, status: 'Starting transcription...' })
+    
+    try {
+      await onTranscribe()
+    } catch (error) {
+      console.error('Transcription error:', error)
+    } finally {
+      setIsTranscribing(false)
+      setTranscriptionProgress({ percent: 0, status: '' })
+    }
+  }
 
   // Check if playhead is over a clip's active region
   const isPlayheadOverClip = (clip) => {
@@ -571,6 +627,15 @@ const HorizontalTimeline = ({
             </div>
           )}
           <button 
+            className="btn btn-ai"
+            onClick={handleTranscribeClick}
+            disabled={timeline.duration === 0 || isTranscribing}
+            title="Transcribe audio to subtitles using AI"
+          >
+            <span className="ai-icon">✨</span>
+            {isTranscribing ? 'Transcribing...' : (timeline.subtitles && timeline.subtitles.length > 0 ? 'Re-transcribe' : 'Transcribe Audio')}
+          </button>
+          <button 
             className="btn btn-success"
             onClick={timeline.duration > 0 ? onExportClick : undefined}
             disabled={timeline.duration === 0}
@@ -579,6 +644,30 @@ const HorizontalTimeline = ({
           </button>
         </div>
       </div>
+      
+      {/* Transcription Progress Modal */}
+      {isTranscribing && (
+        <div className="modal-overlay">
+          <div className="modal-content transcription-modal">
+            <div className="modal-header">
+              <h3>✨ AI Transcription</h3>
+            </div>
+            <div className="modal-body">
+              <div className="transcription-progress">
+                <div className="progress-bar">
+                  <div 
+                    className="progress-fill"
+                    style={{ width: `${transcriptionProgress.percent}%` }}
+                  />
+                </div>
+                <div className="progress-text">
+                  {transcriptionProgress.status || `${transcriptionProgress.percent}% complete`}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="timeline-scroll-container" ref={scrollContainerRef}>
         <div 
@@ -636,7 +725,7 @@ const HorizontalTimeline = ({
           {timeline && timeline.tracks ? timeline.tracks.map(track => (
             <div key={track.id} className="timeline-track">
               <div className="track-label">
-                {track.name}
+                {track.id === 2 ? 'Subtitles' : track.name}
               </div>
               <div 
                 className={`track-content ${dragOverTrack === track.id ? 'drag-over' : ''}`}
@@ -669,103 +758,139 @@ const HorizontalTimeline = ({
                   }
                 }}
               >
-                {track.clips.length === 0 ? (
+                {track.clips.length === 0 && (track.id !== 2 || !timeline.subtitles || timeline.subtitles.length === 0) ? (
                   <div className="track-empty">
-                    Drop clips on {track.name}
+                    {track.id === 2 ? 'Subtitles will appear here after transcription or import' : `Drop clips on ${track.name}`}
                   </div>
                 ) : (
-                  track.clips.map((timelineClip, index) => {
-                    // Safety check: ensure clip and clip.clip exist
-                    if (!timelineClip || !timelineClip.clip) {
-                      return null
-                    }
-                    
-                    const fullDuration = timelineClip.clip.duration || 0
-                    const trimmedDuration = Math.max(0, (timelineClip.trimEnd || 0) - (timelineClip.trimStart || 0))
-                    // Use FULL duration for clip bar width to show trim overlays
-                    const clipWidthPx = Math.max(0, fullDuration * pixelsPerSecond)
-                    // Position clip bar at startTime
-                    const clipLeftPx = Math.max(0, (timelineClip.startTime || 0) * pixelsPerSecond)
-                    
-                    // Calculate trim overlay positions (relative to full duration)
-                    const trimStartPx = fullDuration > 0 ? ((timelineClip.trimStart || 0) / fullDuration) * clipWidthPx : 0
-                    const trimEndPx = fullDuration > 0 ? ((timelineClip.trimEnd || 0) / fullDuration) * clipWidthPx : clipWidthPx
-                    const activeWidthPx = trimEndPx - trimStartPx
-                    
-                    // Only check clipId for selection - split clips share the same original clip but have different clipIds
-                    const isSelected = selectedClip && selectedClip.id === timelineClip.clipId
-                    const isDragging = clipDragData && clipDragData.clip && clipDragData.clip.clipId === timelineClip.clipId
-                    
-                    return (
-                      <div
-                        key={`${timelineClip.clipId}-${index}`}
-                        className={`timeline-clip-bar ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}
-                        style={{
-                          position: 'absolute',
-                          left: clipLeftPx + 'px',
-                          width: clipWidthPx + 'px'
-                        }}
-                        onMouseDown={(e) => handleClipMouseDown(e, timelineClip, track.id)}
-                        onContextMenu={(e) => handleContextMenu(e, timelineClip, track.id)}
-                      >
-                        {/* Greyed-out start trim */}
-                        {timelineClip.trimStart > 0 && (
-                          <div 
-                            className="trim-overlay trim-start" 
-                            style={{ width: trimStartPx + 'px' }}
-                          />
-                        )}
-                        
-                        {/* Active region */}
-                        <div 
-                          className="clip-active-region" 
-                          style={{ 
-                            left: trimStartPx + 'px', 
-                            width: activeWidthPx + 'px' 
+                  <>
+                    {/* Render clips for this track */}
+                    {track.clips.map((timelineClip, index) => {
+                      // Safety check: ensure clip and clip.clip exist
+                      if (!timelineClip || !timelineClip.clip) {
+                        return null
+                      }
+                      
+                      const fullDuration = timelineClip.clip.duration || 0
+                      const trimmedDuration = Math.max(0, (timelineClip.trimEnd || 0) - (timelineClip.trimStart || 0))
+                      // Use FULL duration for clip bar width to show trim overlays
+                      const clipWidthPx = Math.max(0, fullDuration * pixelsPerSecond)
+                      // Position clip bar at startTime
+                      const clipLeftPx = Math.max(0, (timelineClip.startTime || 0) * pixelsPerSecond)
+                      
+                      // Calculate trim overlay positions (relative to full duration)
+                      const trimStartPx = fullDuration > 0 ? ((timelineClip.trimStart || 0) / fullDuration) * clipWidthPx : 0
+                      const trimEndPx = fullDuration > 0 ? ((timelineClip.trimEnd || 0) / fullDuration) * clipWidthPx : clipWidthPx
+                      const activeWidthPx = trimEndPx - trimStartPx
+                      
+                      // Only check clipId for selection - split clips share the same original clip but have different clipIds
+                      const isSelected = selectedClip && selectedClip.id === timelineClip.clipId
+                      const isDragging = clipDragData && clipDragData.clip && clipDragData.clip.clipId === timelineClip.clipId
+                      
+                      return (
+                        <div
+                          key={`${timelineClip.clipId}-${index}`}
+                          className={`timeline-clip-bar ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}
+                          style={{
+                            position: 'absolute',
+                            left: clipLeftPx + 'px',
+                            width: clipWidthPx + 'px'
                           }}
+                          onMouseDown={(e) => handleClipMouseDown(e, timelineClip, track.id)}
+                          onContextMenu={(e) => handleContextMenu(e, timelineClip, track.id)}
                         >
-                          {/* Trim handles - only visible when selected */}
-                          {isSelected && (
-                            <>
-                              <div
-                                className="trim-handle trim-handle-left"
-                                onMouseDown={(e) => handleTrimHandleMouseDown(e, timelineClip, track.id, 'left')}
-                                title="Drag to trim start"
-                              />
-                              <div
-                                className="trim-handle trim-handle-right"
-                                onMouseDown={(e) => handleTrimHandleMouseDown(e, timelineClip, track.id, 'right')}
-                                title="Drag to trim end"
-                              />
-                            </>
+                          {/* Greyed-out start trim */}
+                          {timelineClip.trimStart > 0 && (
+                            <div 
+                              className="trim-overlay trim-start" 
+                              style={{ width: trimStartPx + 'px' }}
+                            />
                           )}
                           
-                          <div className="clip-content">
-                            <div className="clip-name">
-                              {timelineClip.clip.fileName.length > 15 
-                                ? timelineClip.clip.fileName.substring(0, 15) + '...'
-                                : timelineClip.clip.fileName
-                              }
-                            </div>
-                            <div className="clip-duration">
-                              {formatTime(timelineClip.trimEnd - timelineClip.trimStart)}
+                          {/* Active region */}
+                          <div 
+                            className="clip-active-region" 
+                            style={{ 
+                              left: trimStartPx + 'px', 
+                              width: activeWidthPx + 'px' 
+                            }}
+                          >
+                            {/* Trim handles - only visible when selected */}
+                            {isSelected && (
+                              <>
+                                <div
+                                  className="trim-handle trim-handle-left"
+                                  onMouseDown={(e) => handleTrimHandleMouseDown(e, timelineClip, track.id, 'left')}
+                                  title="Drag to trim start"
+                                />
+                                <div
+                                  className="trim-handle trim-handle-right"
+                                  onMouseDown={(e) => handleTrimHandleMouseDown(e, timelineClip, track.id, 'right')}
+                                  title="Drag to trim end"
+                                />
+                              </>
+                            )}
+                            
+                            <div className="clip-content">
+                              <div className="clip-name">
+                                {timelineClip.clip.fileName.length > 15 
+                                  ? timelineClip.clip.fileName.substring(0, 15) + '...'
+                                  : timelineClip.clip.fileName
+                                }
+                              </div>
+                              <div className="clip-duration">
+                                {formatTime(timelineClip.trimEnd - timelineClip.trimStart)}
+                              </div>
                             </div>
                           </div>
+                          
+                          {/* Greyed-out end trim */}
+                          {timelineClip.trimEnd < fullDuration && (
+                            <div 
+                              className="trim-overlay trim-end" 
+                              style={{ 
+                                left: trimEndPx + 'px',
+                                width: (clipWidthPx - trimEndPx) + 'px'
+                              }}
+                            />
+                          )}
                         </div>
-                        
-                        {/* Greyed-out end trim */}
-                        {timelineClip.trimEnd < fullDuration && (
-                          <div 
-                            className="trim-overlay trim-end" 
-                            style={{ 
-                              left: trimEndPx + 'px',
-                              width: (clipWidthPx - trimEndPx) + 'px'
-                            }}
-                          />
-                        )}
+                      )
+                    })}
+                    
+                    {/* Render subtitle track as one continuous bar */}
+                    {track.id === 2 && timeline.subtitles && timeline.subtitles.length > 0 && (
+                      <div
+                        className="timeline-subtitle-track"
+                        style={{
+                          position: 'absolute',
+                          left: '0px',
+                          width: timelineWidthPx + 'px',
+                          height: '100%'
+                        }}
+                        onContextMenu={(e) => {
+                          // Find which subtitle segment was clicked
+                          const rect = e.currentTarget.getBoundingClientRect()
+                          const clickX = e.clientX - rect.left
+                          const clickTime = clickX / pixelsPerSecond
+                          
+                          // Find subtitle at this time position
+                          const clickedSubtitle = timeline.subtitles.find(subtitle => 
+                            subtitle.startTime <= clickTime && subtitle.endTime > clickTime
+                          )
+                          
+                          if (clickedSubtitle) {
+                            handleSubtitleContextMenu(e, clickedSubtitle)
+                          }
+                        }}
+                        title={`${timeline.subtitles.length} subtitle segment${timeline.subtitles.length !== 1 ? 's' : ''} - Right-click to delete`}
+                      >
+                        <div className="subtitle-track-label">
+                          Subtitles ({timeline.subtitles.length} segment{timeline.subtitles.length !== 1 ? 's' : ''})
+                        </div>
                       </div>
-                    )
-                  })
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -797,6 +922,25 @@ const HorizontalTimeline = ({
             onClick={() => handleContextMenuAction('delete')}
           >
             Delete from timeline
+          </div>
+        </div>
+      )}
+      
+      {/* Subtitle Context Menu */}
+      {subtitleContextMenu && (
+        <div
+          className="timeline-context-menu"
+          style={{
+            position: 'fixed',
+            left: subtitleContextMenu.x + 'px',
+            top: subtitleContextMenu.y + 'px'
+          }}
+        >
+          <div
+            className="context-menu-item danger"
+            onClick={() => handleSubtitleContextMenuAction('delete')}
+          >
+            Delete subtitle
           </div>
         </div>
       )}

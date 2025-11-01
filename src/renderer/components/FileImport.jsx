@@ -1,8 +1,30 @@
 import React, { useState } from 'react'
 
-const FileImport = ({ onVideoImported }) => {
+const FileImport = ({ onVideoImported, onSubtitleImported }) => {
   const [isDragOver, setIsDragOver] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [isImportingSubtitle, setIsImportingSubtitle] = useState(false)
+
+  const handleSubtitleSelect = async () => {
+    try {
+      if (!window.electronAPI) {
+        throw new Error('Electron API not available')
+      }
+      
+      setIsImportingSubtitle(true)
+      
+      const result = await window.electronAPI.importSubtitle()
+      
+      if (result && onSubtitleImported) {
+        onSubtitleImported(result)
+      }
+    } catch (error) {
+      console.error('Error importing subtitle:', error)
+      alert(`Failed to import subtitle: ${error.message}`)
+    } finally {
+      setIsImportingSubtitle(false)
+    }
+  }
 
   const handleFileSelect = async () => {
     try {
@@ -141,6 +163,14 @@ const FileImport = ({ onVideoImported }) => {
         title="Import video file (MP4, MOV, or WebM)"
       >
         {isImporting ? 'Importing...' : 'Import Video'}
+      </button>
+      <button 
+        className="btn btn-secondary"
+        onClick={handleSubtitleSelect}
+        disabled={isImportingSubtitle}
+        title="Import subtitle file (.srt or .vtt)"
+      >
+        {isImportingSubtitle ? 'Importing...' : 'Import Subtitles'}
       </button>
     </div>
   )

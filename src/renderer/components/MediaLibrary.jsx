@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react'
 import FileImport from './FileImport'
 import RecordingPanel from './RecordingPanel'
 
-const MediaLibrary = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideoImported, onClipDragStart, onRecordingComplete }) => {
+const MediaLibrary = ({ clips, subtitleFiles = [], selectedClip, onClipSelect, onClipDelete, onVideoImported, onSubtitleImported, onClipDragStart, onRecordingComplete }) => {
   const [showRecordingModal, setShowRecordingModal] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [recordingType, setRecordingType] = useState(null)
@@ -107,14 +107,15 @@ const MediaLibrary = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideo
         <h3 className="timeline-title">Media Library</h3>
       </div>
       
-      {clips.length === 0 ? (
+      {clips.length === 0 && subtitleFiles.length === 0 ? (
         <div className="timeline-empty">
           <div className="empty-icon">📁</div>
           <p>No media imported yet</p>
-          <p className="text-muted">Click the import button to add videos</p>
+          <p className="text-muted">Click the import button to add videos or subtitles</p>
         </div>
       ) : (
         <div className="timeline-container">
+          {/* Video clips */}
           {clips.map((clip) => (
             <div
               key={clip.id}
@@ -187,11 +188,65 @@ const MediaLibrary = ({ clips, selectedClip, onClipSelect, onClipDelete, onVideo
               </button>
             </div>
           ))}
+          
+          {/* Subtitle files */}
+          {subtitleFiles.map((subtitleFile) => (
+            <div
+              key={subtitleFile.id}
+              className="timeline-clip preview-only subtitle-file"
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData('application/json', JSON.stringify({ type: 'subtitle', ...subtitleFile }))
+                e.dataTransfer.effectAllowed = 'copy'
+              }}
+            >
+              <div className="timeline-clip-content">
+                <div className="timeline-clip-header">
+                  <div className="timeline-clip-name" title={subtitleFile.fileName}>
+                    <span className="subtitle-badge">📝</span>
+                    {subtitleFile.fileName.length > 35 
+                      ? subtitleFile.fileName.substring(0, 35) + '...' 
+                      : subtitleFile.fileName
+                    }
+                  </div>
+                </div>
+                <div className="timeline-clip-body">
+                  <div className="timeline-clip-thumbnail">
+                    <div className="thumbnail-placeholder" style={{ display: 'flex' }}>
+                      📝
+                    </div>
+                  </div>
+                  <div className="timeline-clip-metadata">
+                    <div className="metadata-item">
+                      <span className="metadata-label">Segments:</span>
+                      <span className="metadata-value">{subtitleFile.subtitles?.length || 0}</span>
+                    </div>
+                    <div className="metadata-item">
+                      <span className="metadata-label">Size:</span>
+                      <span className="metadata-value">{formatFileSize(subtitleFile.fileSize)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button
+                className="timeline-clip-delete"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (onClipDelete) {
+                    onClipDelete(subtitleFile.id)
+                  }
+                }}
+                title="Delete subtitle file"
+              >
+                ×
+              </button>
+            </div>
+          ))}
         </div>
       )}
       
       <div style={{ padding: '16px', borderTop: '1px solid #333' }}>
-        <FileImport onVideoImported={onVideoImported} />
+        <FileImport onVideoImported={onVideoImported} onSubtitleImported={onSubtitleImported} />
         <div className="file-import-header" style={{ marginTop: '12px' }}>
           {isRecording ? (
             <button 

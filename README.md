@@ -4,9 +4,9 @@ A modern desktop video editor built with Electron, React, and FFmpeg for profess
 
 ## 🎬 Current Project Status
 
-**Version**: 2.0.0  
+**Version**: 2.1.0  
 **Status**: Production Ready ✅  
-**Last Updated**: October 2024  
+**Last Updated**: November 2024  
 
 ### ✨ Key Features
 
@@ -17,6 +17,7 @@ A modern desktop video editor built with Electron, React, and FFmpeg for profess
 - **Precision Trimming**: Visual trim handles with real-time preview
 - **Drag & Drop Reordering**: Easily swap and rearrange clips on timeline
 - **Timeline Preview**: Full timeline playback with seamless transitions between clips
+- **Subtitle Support**: Import .srt/.vtt subtitle files and display them on timeline and during playback
 
 #### Playback & Navigation
 - **Spacebar Play/Pause**: Quick keyboard control for video playback
@@ -26,11 +27,14 @@ A modern desktop video editor built with Electron, React, and FFmpeg for profess
 
 #### Import & Recording
 - **File Import**: Import videos via file picker (drag-and-drop from file system not supported due to Electron security restrictions)
+- **Subtitle Import**: Import subtitle files (.srt, .vtt) with automatic video name matching
 - **Screen Recording**: Built-in screen capture with audio support
-- **Multiple Format Support**: MP4, MOV, and WebM files
+- **Multiple Format Support**: MP4, MOV, and WebM for videos; SRT and VTT for subtitles
 
 #### Export
 - **Multi-Resolution Export**: Original, 4K, 1080p, 720p, 480p, 360p
+- **Single File Output**: All segments concatenated into one video file
+- **Subtitle Export**: Optional SRT file export alongside video
 - **Format Support**: Export to MP4 with H.264 video and AAC audio
 - **Progress Tracking**: Real-time export progress feedback
 
@@ -237,11 +241,31 @@ npm run package
 
 7. **Export**:
    - Select resolution (Original, 1080p, 720p, etc.)
+   - Optionally enable subtitle export (if subtitles present)
    - Click "Export Video"
    - Choose save location
    - Wait for progress bar to complete
+   - Output: Single concatenated video file (+ optional .srt file)
 
 ### Advanced Features
+
+#### Subtitle Management
+1. **Import Subtitles**:
+   - Click "Import Subtitles" button
+   - Select .srt or .vtt file
+   - File appears in media library with video name matching
+   - Drag subtitle file to timeline to add
+
+2. **Timeline Display**:
+   - Subtitles appear in dedicated track
+   - Shows segment count and video association
+   - Right-click segments to delete
+   - Subtitles display during timeline preview
+
+3. **Export with Subtitles**:
+   - Check "Include Subtitles" in export dialog
+   - Creates .srt file alongside video
+   - Both files saved in output folder
 
 #### Screen Recording
 1. Open Recording Panel
@@ -282,7 +306,7 @@ npm run package
 - No project save/load
 - No transitions between clips
 - No audio waveform visualization
-- No text overlays or effects
+- No subtitle editing (only import and display)
 
 ## 🐛 Troubleshooting
 
@@ -334,6 +358,29 @@ npm run package
 - Report as a bug with reproduction steps
 
 ## 📝 Changelog
+
+### v2.1.0 (November 2024) - Subtitle Support
+
+#### 📝 Subtitle Features
+- ✅ **Subtitle Import**: Import .srt and .vtt subtitle files
+- ✅ **Auto-Naming**: Automatically matches subtitle files with video files by name
+- ✅ **Media Library Display**: Subtitle files shown with segment count and file size
+- ✅ **Timeline Integration**: Dedicated subtitle track with visual display
+- ✅ **Playback Overlay**: Subtitles display during timeline preview
+- ✅ **Export Support**: Optional SRT file export alongside video
+- ✅ **Drag & Drop**: Drag subtitle files from library to timeline
+
+#### 🎨 UI Improvements
+- ✅ **Aligned Buttons**: Import Video and Import Subtitles buttons properly aligned
+- ✅ **Track Labeling**: Subtitle track labeled as "Subtitles" matching "Main" track style
+- ✅ **Visual Distinction**: Subtitle files shown with green border and document icon
+- ✅ **Segment Display**: Shows number of subtitle segments in each file
+
+#### 🔧 Technical
+- ✅ **SRT Parser**: Built-in parser for SRT format subtitle files
+- ✅ **VTT Support**: Compatible with WebVTT subtitle format
+- ✅ **Single File Export**: All clips concatenated into one output video file
+- ✅ **Subtitle Synchronization**: Subtitles properly timed with video segments
 
 ### v2.0.0 (October 2024) - Major Feature Update
 

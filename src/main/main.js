@@ -1,8 +1,24 @@
-const { app, BrowserWindow, ipcMain, dialog, protocol, desktopCapturer } = require('electron')
+// Load environment variables from .env file
+// Find .env file relative to the app root (works in both dev and production)
 const path = require('path')
+const fs = require('fs')
+const envPath = path.join(__dirname, '../../.env')
+require('dotenv').config({ path: envPath })
+
+console.log('Main: Loading .env from:', envPath)
+console.log('Main: .env file exists:', fs.existsSync(envPath))
+if (process.env.OPENAI_API_KEY) {
+  console.log('Main: OPENAI_API_KEY loaded successfully (length:', process.env.OPENAI_API_KEY.length, ')')
+} else {
+  console.warn('Main: OPENAI_API_KEY not found in environment')
+}
+
+const { app, BrowserWindow, ipcMain, dialog, protocol, desktopCapturer } = require('electron')
 const ffmpeg = require('fluent-ffmpeg')
 const ffmpegPath = require('ffmpeg-static')
 const ffprobePath = require('ffprobe-static').path
+const OpenAI = require('openai')
+const os = require('os')
 
 // Safe logging helper to avoid EPIPE errors
 function safeLog(...args) {
@@ -329,6 +345,96 @@ ipcMain.handle('import-video', async (event) => {
 })
 
 // Removed process-dropped-file handler - drag & drop is disabled
+
+// Import subtitle file
+ipcMain.handle('import-subtitle', async (event) => {
+  try {
+    console.log('Main: import-subtitle IPC called')
+    
+    const window = mainWindow || BrowserWindow.getFocusedWindow() || BrowserWindow.fromWebContents(event.sender)
+    
+    if (!window) {
+      throw new Error('No window available')
+    }
+    
+    const result = await dialog.showOpenDialog(window, {
+      properties: ['openFile'],
+      filters: [
+        { name: 'Subtitle Files', extensions: ['srt', 'vtt'] }
+      ]
+    })
+    
+    if (!result.canceled && result.filePaths && result.filePaths.length > 0) {
+      const filePath = result.filePaths[0]
+      console.log('Main: Subtitle file selected:', filePath)
+      
+      // Read and parse the subtitle file
+      const fs = require('fs')
+      const content = fs.readFileSync(filePath, 'utf8')
+      const fileName = path.basename(filePath)
+      
+      // Parse SRT format
+      const subtitles = parseSRT(content)
+      
+      return {
+        filePath,
+        fileName,
+        subtitles,
+        fileSize: fs.statSync(filePath).size
+      }
+    }
+    
+    return null
+  } catch (error) {
+    console.error('Error importing subtitle:', error)
+    throw error
+  }
+})
+
+// Helper function to parse SRT format
+function parseSRT(content) {
+  const subtitles = []
+  const blocks = content.trim().split(/\n\s*\n/)
+  
+  blocks.forEach((block, index) => {
+    const lines = block.trim().split('\n')
+    if (lines.length < 3) return
+    
+    // Parse sequence number (first line)
+    const sequence = parseInt(lines[0])
+    if (isNaN(sequence)) return
+    
+    // Parse timecode (second line) - format: HH:MM:SS,mmm --> HH:MM:SS,mmm
+    const timecodeMatch = lines[1].match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/)
+    if (!timecodeMatch) return
+    
+    const startHours = parseInt(timecodeMatch[1])
+    const startMinutes = parseInt(timecodeMatch[2])
+    const startSeconds = parseInt(timecodeMatch[3])
+    const startMilliseconds = parseInt(timecodeMatch[4])
+    const startTime = startHours * 3600 + startMinutes * 60 + startSeconds + startMilliseconds / 1000
+    
+    const endHours = parseInt(timecodeMatch[5])
+    const endMinutes = parseInt(timecodeMatch[6])
+    const endSeconds = parseInt(timecodeMatch[7])
+    const endMilliseconds = parseInt(timecodeMatch[8])
+    const endTime = endHours * 3600 + endMinutes * 60 + endSeconds + endMilliseconds / 1000
+    
+    // Get subtitle text (remaining lines)
+    const text = lines.slice(2).join(' ').trim()
+    
+    if (text) {
+      subtitles.push({
+        id: `subtitle_imported_${Date.now()}_${index}`,
+        startTime,
+        endTime,
+        text
+      })
+    }
+  })
+  
+  return subtitles
+}
 
 // Get video duration
 ipcMain.handle('get-video-duration', async (event, filePath) => {
@@ -769,7 +875,8 @@ ipcMain.handle('export-timeline', async (event, options) => {
       })
     })
     
-    // Use simpler two-pass approach: extract each segment, then concat
+    // Use simpler two-pass approach: extract each segment, then concat into a SINGLE file
+    // All segments are concatenated into one output video file (not separate files)
     const os = require('os')
     const tempDir = os.tmpdir()
     const tempFiles = []
@@ -1057,10 +1164,6 @@ ipcMain.handle('save-recording-file', async (event, arrayBuffer, fileName) => {
   try {
     console.log('Main: Saving recording file:', fileName)
     
-    const os = require('os')
-    const path = require('path')
-    const fs = require('fs')
-    
     // Create file path in Downloads folder
     const downloadsPath = path.join(os.homedir(), 'Downloads')
     const filePath = path.join(downloadsPath, fileName)
@@ -1089,3 +1192,376 @@ ipcMain.handle('save-recording-file', async (event, arrayBuffer, fileName) => {
     }
   }
 })
+
+// OpenAI API Key Management - Load from environment variable
+const getOpenAIApiKey = () => {
+  // First try environment variable
+  if (process.env.OPENAI_API_KEY) {
+    console.log('Main: OpenAI API key loaded from environment variable')
+    return process.env.OPENAI_API_KEY
+  }
+  console.warn('Main: OpenAI API key not found in environment variable')
+  return null
+}
+
+ipcMain.handle('get-openai-api-key', async () => {
+  return getOpenAIApiKey()
+})
+
+ipcMain.handle('set-openai-api-key', async (event, apiKey) => {
+  // Still allow runtime setting but prefer env variable
+  // Environment variable takes precedence
+  return { success: true }
+})
+
+// Transcribe audio using OpenAI Whisper API
+ipcMain.handle('transcribe-audio', async (event, { clips }) => {
+  try {
+    console.log('Main: Starting transcription for clips:', clips.length)
+    
+    const apiKey = getOpenAIApiKey()
+    if (!apiKey) {
+      throw new Error('OpenAI API key not found. Please set OPENAI_API_KEY in your .env file.')
+    }
+    
+    const openai = new OpenAI({ apiKey: apiKey })
+    const tempDir = os.tmpdir()
+    const tempAudioPath = path.join(tempDir, `clipforge_transcribe_${Date.now()}.wav`)
+    const tempVideoPath = path.join(tempDir, `clipforge_video_${Date.now()}.mp4`)
+    
+    try {
+      // Step 1: Create a temporary video with all clips concatenated
+      console.log('Main: Step 1 - Creating temporary video for transcription...')
+      const tempClipFiles = []
+      const concatListPath = path.join(tempDir, `clipforge_transcribe_concat_${Date.now()}.txt`)
+      
+      // Extract each clip segment to a temporary file
+      for (let i = 0; i < clips.length; i++) {
+        const clip = clips[i]
+        const tempFile = path.join(tempDir, `clipforge_transcribe_segment_${Date.now()}_${i}.mp4`)
+        tempClipFiles.push(tempFile)
+        
+        console.log(`Main: Extracting clip ${i + 1} to ${tempFile}`)
+        
+        await new Promise((resolve, reject) => {
+          ffmpeg(clip.filePath)
+            .setStartTime(clip.startTime)
+            .setDuration(clip.duration)
+            .videoCodec('copy')
+            .audioCodec('copy')
+            .output(tempFile)
+            .on('end', () => resolve())
+            .on('error', (err) => reject(err))
+            .run()
+        })
+        
+        // Send progress update
+        const progress = Math.round((i / clips.length) * 30)
+        mainWindow.webContents.send('transcription-progress', { percent: progress, status: 'Preparing audio...' })
+      }
+      
+      // Concatenate all temp files
+      const concatList = tempClipFiles.map(f => `file '${f}'`).join('\n')
+      fs.writeFileSync(concatListPath, concatList)
+      
+      await new Promise((resolve, reject) => {
+        ffmpeg()
+          .input(concatListPath)
+          .inputOptions(['-f', 'concat', '-safe', '0'])
+          .videoCodec('copy')
+          .audioCodec('copy')
+          .output(tempVideoPath)
+          .on('end', () => resolve())
+          .on('error', (err) => reject(err))
+          .run()
+      })
+      
+      // Cleanup temp clip files
+      tempClipFiles.forEach(f => {
+        try { fs.unlinkSync(f) } catch (e) {}
+      })
+      try { fs.unlinkSync(concatListPath) } catch (e) {}
+      
+      mainWindow.webContents.send('transcription-progress', { percent: 40, status: 'Extracting audio...' })
+      
+      // Step 2: Extract audio as WAV
+      console.log('Main: Step 2 - Extracting audio to WAV...')
+      await new Promise((resolve, reject) => {
+        ffmpeg(tempVideoPath)
+          .audioCodec('pcm_s16le')
+          .audioFrequency(16000)
+          .audioChannels(1)
+          .outputOptions(['-ar', '16000'])
+          .output(tempAudioPath)
+          .on('end', () => {
+            console.log('Main: Audio extraction complete')
+            resolve()
+          })
+          .on('error', (err) => {
+            console.error('Main: Audio extraction error:', err)
+            reject(err)
+          })
+          .run()
+      })
+      
+      // Check if audio file was created and is not empty
+      const audioStats = fs.statSync(tempAudioPath)
+      console.log('Main: Audio file size:', audioStats.size, 'bytes')
+      
+      if (audioStats.size === 0) {
+        throw new Error('Extracted audio file is empty. The video may not contain audio.')
+      }
+      
+      // Check if file is too large (Whisper API has 25MB limit)
+      const maxSize = 25 * 1024 * 1024 // 25MB
+      if (audioStats.size > maxSize) {
+        throw new Error('Audio file is too large for transcription. Maximum size is 25MB.')
+      }
+      
+      mainWindow.webContents.send('transcription-progress', { percent: 60, status: 'Transcribing with AI...' })
+      
+      // Step 3: Send to OpenAI Whisper API
+      console.log('Main: Step 3 - Sending to OpenAI Whisper API...')
+      console.log('Main: Audio file path:', tempAudioPath)
+      console.log('Main: Audio file size:', audioStats.size, 'bytes')
+      
+      let transcription
+      try {
+        transcription = await openai.audio.transcriptions.create({
+          file: fs.createReadStream(tempAudioPath),
+          model: 'whisper-1',
+          response_format: 'verbose_json',
+          timestamp_granularities: ['segment']
+        })
+      } catch (apiError) {
+        console.error('Main: OpenAI API error details:', {
+          message: apiError.message,
+          status: apiError.status,
+          code: apiError.code,
+          type: apiError.type,
+          response: apiError.response
+        })
+        
+        // Provide more helpful error messages
+        if (apiError.code === 'ENOTFOUND' || apiError.message.includes('getaddrinfo')) {
+          throw new Error('Network connection failed. Please check your internet connection.')
+        } else if (apiError.status === 401) {
+          throw new Error('Invalid API key. Please check your OPENAI_API_KEY in the .env file.')
+        } else if (apiError.status === 429) {
+          throw new Error('API rate limit exceeded. Please try again later.')
+        } else if (apiError.status === 500 || apiError.status === 502 || apiError.status === 503) {
+          throw new Error('OpenAI service is temporarily unavailable. Please try again later.')
+        } else {
+          throw new Error(`OpenAI API error: ${apiError.message || 'Unknown error'}`)
+        }
+      }
+      
+      console.log('Main: Transcription complete, segments:', transcription.segments?.length || 0)
+      
+      mainWindow.webContents.send('transcription-progress', { percent: 90, status: 'Processing subtitles...' })
+      
+      // Step 4: Format segments for subtitle use
+      const segments = (transcription.segments || []).map((segment, index) => ({
+        id: `subtitle_${Date.now()}_${index}`,
+        startTime: segment.start,
+        endTime: segment.end,
+        text: segment.text.trim()
+      }))
+      
+      console.log('Main: Formatted segments:', segments.length)
+      
+      // Cleanup temp files
+      try { fs.unlinkSync(tempAudioPath) } catch (e) {}
+      try { fs.unlinkSync(tempVideoPath) } catch (e) {}
+      
+      mainWindow.webContents.send('transcription-progress', { percent: 100, status: 'Complete!' })
+      
+      return {
+        success: true,
+        segments: segments,
+        duration: transcription.duration
+      }
+      
+    } catch (error) {
+      // Cleanup on error
+      try { fs.unlinkSync(tempAudioPath) } catch (e) {}
+      try { fs.unlinkSync(tempVideoPath) } catch (e) {}
+      throw error
+    }
+    
+  } catch (error) {
+    console.error('Error transcribing audio:', error)
+    console.error('Error stack:', error.stack)
+    
+    // Return a more user-friendly error message
+    const errorMessage = error.message || 'Unknown error occurred during transcription'
+    throw new Error(errorMessage)
+  }
+})
+
+// Export timeline with subtitles to a folder
+ipcMain.handle('export-timeline-with-subtitles', async (event, { clips, outputPath, resolution, subtitles }) => {
+  try {
+    console.log('Main: Exporting timeline with subtitles to:', outputPath)
+    
+    // Create output folder
+    const folderPath = outputPath.replace(/\.[^/.]+$/, '') // Remove extension
+    if (!fs.existsSync(folderPath)) {
+      fs.mkdirSync(folderPath, { recursive: true })
+    }
+    
+    // Export video (reuse existing export logic)
+    const videoPath = path.join(folderPath, 'video.mp4')
+    
+    // Prepare clip metadata
+    const clipMetadata = []
+    for (let i = 0; i < clips.length; i++) {
+      const clip = clips[i]
+      let normalizedPath = clip.filePath
+      
+      if (normalizedPath.startsWith('local://')) {
+        normalizedPath = normalizedPath.replace('local://', '')
+      }
+      if (normalizedPath.startsWith('file://')) {
+        normalizedPath = normalizedPath.replace('file://', '')
+      }
+      
+      if (!fs.existsSync(normalizedPath)) {
+        throw new Error(`Clip file not found: ${normalizedPath}`)
+      }
+      
+      // Get file duration and check for audio
+      const metadata = await new Promise((resolve, reject) => {
+        ffmpeg.ffprobe(normalizedPath, (err, metadata) => {
+          if (err) reject(err)
+          else resolve(metadata)
+        })
+      })
+      
+      const hasAudio = metadata.streams.some(s => s.codec_type === 'audio')
+      const videoStreamIndex = metadata.streams.findIndex(s => s.codec_type === 'video')
+      const audioStreamIndex = metadata.streams.findIndex(s => s.codec_type === 'audio')
+      const fileDuration = metadata.format.duration || 0
+      
+      clipMetadata.push({ ...clip, filePath: normalizedPath, hasAudio, videoStreamIndex, audioStreamIndex })
+    }
+    
+    // Extract and concatenate clips
+    const tempDir = os.tmpdir()
+    const tempFiles = []
+    const concatListPath = path.join(tempDir, `clipforge_export_concat_${Date.now()}.txt`)
+    
+    try {
+      // Extract each clip segment
+      for (let i = 0; i < clipMetadata.length; i++) {
+        const clip = clipMetadata[i]
+        const tempFile = path.join(tempDir, `clipforge_export_segment_${Date.now()}_${i}.mp4`)
+        tempFiles.push(tempFile)
+        
+        await new Promise((resolve, reject) => {
+          ffmpeg(clip.filePath)
+            .setStartTime(clip.startTime)
+            .setDuration(clip.duration)
+            .videoCodec('libx264')
+            .audioCodec('aac')
+            .outputOptions([
+              '-preset', 'fast',
+              '-crf', '23',
+              '-pix_fmt', 'yuv420p',
+              '-ar', '48000',
+              '-ac', '2'
+            ])
+            .output(tempFile)
+            .on('end', () => resolve())
+            .on('error', (err) => reject(err))
+            .run()
+        })
+        
+        const percent = Math.round((i / clipMetadata.length) * 50)
+        mainWindow.webContents.send('export-progress', { percent })
+      }
+      
+      // Concatenate
+      const concatList = tempFiles.map(f => `file '${f}'`).join('\n')
+      fs.writeFileSync(concatListPath, concatList)
+      
+      await new Promise((resolve, reject) => {
+        ffmpeg()
+          .input(concatListPath)
+          .inputOptions(['-f', 'concat', '-safe', '0'])
+          .videoCodec('copy')
+          .audioCodec('copy')
+          .output(videoPath)
+          .on('progress', (progress) => {
+            const percent = Math.round(50 + (progress.percent || 0) / 2)
+            mainWindow.webContents.send('export-progress', { percent })
+          })
+          .on('end', () => resolve())
+          .on('error', (err) => reject(err))
+          .run()
+      })
+      
+      // Cleanup temp files
+      tempFiles.forEach(f => {
+        try { fs.unlinkSync(f) } catch (e) {}
+      })
+      try { fs.unlinkSync(concatListPath) } catch (e) {}
+      
+    } catch (error) {
+      // Cleanup on error
+      tempFiles.forEach(f => {
+        try { fs.unlinkSync(f) } catch (e) {}
+      })
+      try { fs.unlinkSync(concatListPath) } catch (e) {}
+      throw error
+    }
+    
+    // Generate SRT file if subtitles provided
+    if (subtitles && subtitles.length > 0) {
+      const srtPath = path.join(folderPath, 'subtitles.srt')
+      const srtContent = generateSRT(subtitles)
+      fs.writeFileSync(srtPath, srtContent, 'utf8')
+      console.log('Main: SRT file created:', srtPath)
+    }
+    
+    console.log('Main: Export with subtitles complete')
+    mainWindow.webContents.send('export-complete')
+    
+    // Open folder in Finder/Explorer
+    require('electron').shell.showItemInFolder(videoPath)
+    
+    return { success: true, folderPath }
+    
+  } catch (error) {
+    console.error('Error exporting timeline with subtitles:', error)
+    mainWindow.webContents.send('export-error', error.message)
+    throw error
+  }
+})
+
+// Helper function to generate SRT format
+function generateSRT(segments) {
+  let srt = ''
+  
+  segments.forEach((segment, index) => {
+    const startTime = formatSRTTime(segment.startTime)
+    const endTime = formatSRTTime(segment.endTime)
+    
+    srt += `${index + 1}\n`
+    srt += `${startTime} --> ${endTime}\n`
+    srt += `${segment.text}\n`
+    srt += `\n`
+  })
+  
+  return srt
+}
+
+// Helper function to format time for SRT (HH:MM:SS,mmm)
+function formatSRTTime(seconds) {
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = Math.floor(seconds % 60)
+  const milliseconds = Math.floor((seconds % 1) * 1000)
+  
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(milliseconds).padStart(3, '0')}`
+}

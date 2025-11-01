@@ -6,6 +6,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Video import
   importVideo: () => ipcRenderer.invoke('import-video'),
   
+  // Subtitle import
+  importSubtitle: () => ipcRenderer.invoke('import-subtitle'),
+  
   // Video metadata
   getVideoDuration: (filePath) => ipcRenderer.invoke('get-video-duration', filePath),
   getVideoMetadata: (filePath, fallbackDuration) => ipcRenderer.invoke('get-video-metadata', filePath, fallbackDuration),
@@ -40,6 +43,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Video export
   exportVideo: (options) => ipcRenderer.invoke('export-video', options),
   exportTimeline: (options) => ipcRenderer.invoke('export-timeline', options),
+  exportTimelineWithSubtitles: (options) => ipcRenderer.invoke('export-timeline-with-subtitles', options),
   
   // Export event listeners
   onExportProgress: (callback) => {
@@ -52,6 +56,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   onExportError: (callback) => {
     ipcRenderer.on('export-error', (event, error) => callback(error))
+  },
+  
+  // Transcription APIs
+  getOpenAIApiKey: () => ipcRenderer.invoke('get-openai-api-key'),
+  setOpenAIApiKey: (apiKey) => ipcRenderer.invoke('set-openai-api-key', apiKey),
+  transcribeAudio: (options) => ipcRenderer.invoke('transcribe-audio', options),
+  
+  // Transcription event listeners
+  onTranscriptionProgress: (callback) => {
+    ipcRenderer.on('transcription-progress', (event, data) => callback(data))
   },
   
   // Recording APIs
